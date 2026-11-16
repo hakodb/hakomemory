@@ -1,7 +1,33 @@
 # memory-box — RAG Server untuk OpenCode
 
-> Dokumen kerja. Status: fase POC dimulai.
+> Dokumen kerja. Status: fase POC — wave-1 API lolos, embedder MiniLM berjalan.
 > Terakhir diperbarui: 2026-11-16
+
+## 0. Temuan POC (terverifikasi dari source v0.20.6 + eksekusi)
+
+```rust
+// engine (src/engine/engine.rs)
+hybrid_search(collection, text_field, text_query, vec_field, query: &[f32],
+              k, rrf_k) -> Result<Vec<(String, f64, HakoDoc)>>      // RRF, score desc
+find_near_scored(collection, field, query: &[f32], k, max_distance)
+              -> Result<Vec<(String, f64, HakoDoc)>>                // score = distance, lower = closer
+find_paths(collection, id, spec: &TraverseSpec) -> Vec<TraverseHit>  // TraverseHit{collection,id,depth,cost,path,via,doc}
+subgraph_json(collection, seed_id, spec) -> Result<String>           // JSON {"nodes":[...],"edges":[...]}
+graph_pagerank(collection, seeds: &[(String,String)], spec, damping, top)
+              -> Vec<((String,String), f64)>
+graph_communities(collection, spec) -> Vec<Vec<(String, String)>>
+create_vector_index(col, field, dim, Metric) | create_vector_index_with_params
+create_fts_index(col, field) | create_traverse_index(col) | create_edge_index(col)
+vector_index_complete(col, field) | await_quiescent(timeout)
+```
+
+- **Relasi antar-node via koleksi edge** wajib `via_edge: Some("edges")` pada
+  `TraverseSpec` (BFS/Dijkstra); walk inline `Reference` berjalan tanpa itu.
+- **Recovery index async setelah open** — selalu `await_quiescent()` sebelum
+  query pertama; persist-HNSW membuat reopen siap ~10 ms (POC 6 chunk).
+- Vektor disisipkan sebagai `Value::Binary(encode_f32s(&v))`.
+- `TraverseSpec` butuh `max_depth` 1..=256, `limit` >= 1, `spec.validate()`.
+
 
 ## 1. Tujuan
 

@@ -9,3 +9,8 @@ hakodb = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+fastembed = { version = "7", default-features = false, features = [
+    "onnx",
+    "ort-download-binaries-rustls-tls",
+    "hf-hub-rustls-tls",
+] }

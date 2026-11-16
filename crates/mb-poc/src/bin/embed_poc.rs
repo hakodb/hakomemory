@@ -4,12 +4,12 @@
 //! Model diunduh sekali ke cache (FASTEMBED_CACHE_DIR), lalu offline.
 
 use anyhow::Result;
-use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use hakodb::config::{DurabilityMode, HakoConfig};
 use hakodb::document::hako_doc::HakoDoc;
 use hakodb::document::value::Value;
 use hakodb::engine::Hako;
 use hakodb::index::vector::Metric;
+use mb_embed::Embedder;
 
 const DIM: u32 = 384;
 
@@ -28,17 +28,23 @@ fn chunk_doc(path: &str, content: &str, emb: &[f32]) -> HakoDoc {
 }
 
 fn main() -> Result<()> {
+    // PENTING: Hako::open harus inisialisasi pool rayon global PERTAMA
+    // (hakodb memanggil build_global().unwrap() — panik jika pool sudah
+    // diambil pihak lain, mis. candle/tokenizers). Di server nyata:
+    // buka semua instance project sebelum embedder aktif.
+    let dir = std::env::temp_dir().join(format!("mb-poc-emb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir)?;
+
     let cache = "/home/riza/memory-box/data/model-cache";
     std::fs::create_dir_all(cache)?;
 
-    println!("== 1. load MiniLM-L6 (384d) — unduh sekali, lalu cache ==");
+    println!("== 0. open HakoDB dulu (pemilik pool rayon global) ==");
+    let db = open_db(&dir)?;
+
+    println!("== 1. load MiniLM-L6 (384d, candle pure-Rust) — unduh sekali, lalu cache ==");
     let t0 = std::time::Instant::now();
-    let mut model = TextEmbedding::try_new(
-        TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
-            .with_show_download_progress(true)
-            .with_cache_dir(std::path::PathBuf::from(cache))
-            .with_intra_threads(4),
-    )?;
+    let mut model = Embedder::load(mb_embed::MINILM_L6_V2, Some(std::path::Path::new(cache)))?;
     println!("   model siap dalam {:.1} s", t0.elapsed().as_secs_f64());
 
     let chunks = [
@@ -53,11 +59,11 @@ fn main() -> Result<()> {
     println!("== 2. embed corpus + ukur throughput ==");
     let t0 = std::time::Instant::now();
     let corpus: Vec<String> = chunks.iter().map(|(_, c)| c.to_string()).collect();
-    let embs = model.embed(corpus.clone(), None)?;
+    let embs = model.embed(&corpus)?;
     let dt = t0.elapsed();
     println!("   {} dokumen dalam {:.1} ms ({:.0} doc/s), dim={}",
         embs.len(), dt.as_millis(),
-        embs.len() as f64 / dt.as_secs_f64());
+        embs.len() as f64 / dt.as_secs_f64(), DIM);
     assert_eq!(embs[0].len(), DIM as usize);
 
     let dir = std::env::temp_dir().join(format!("mb-poc-emb-{}", std::process::id()));
@@ -65,7 +71,6 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(&dir)?;
 
     println!("== 3. index ke HakoDB (vector 384d cosine + FTS) ==");
-    let db = open_db(&dir)?;
     db.create_fts_index("chunks", "content")?;
     db.create_vector_index("chunks", "emb", DIM, Metric::Cosine)?;
     for (i, ((path, content), emb)) in chunks.iter().zip(&embs).enumerate() {
@@ -81,7 +86,7 @@ fn main() -> Result<()> {
     ];
     for q in queries {
         let t0 = std::time::Instant::now();
-        let qv = &model.embed(vec![q.to_string()], None)?[0];
+        let qv = &model.embed_one(q)?;
         let emb_ms = t0.elapsed().as_millis();
         let rows = db.hybrid_search("chunks", "content", q, "emb", qv, 3, 60)?;
         println!("   q: {q} (embed {emb_ms} ms)");

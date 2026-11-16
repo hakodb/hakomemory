@@ -10,7 +10,8 @@ Baca [PLAN.md](PLAN.md) untuk keputusan desain, arsitektur, dan fase kerja.
 
 ```
 crates/
-  mb-poc/       POC fase 1: validasi hakodb wave-1 API + embedder lokal
+  mb-poc/       POC fase 1: validasi hakodb wave-1 API + embedder lokal (SELESAI)
+  mb-embed/     embedder teks lokal: MiniLM-L6 384d via candle (pure Rust)
   mb-server/    server axum (fase 2)
 plugins/        plugin OpenCode TS (fase 3)
 ```
@@ -18,8 +19,8 @@ plugins/        plugin OpenCode TS (fase 3)
 ## Status
 
 - [x] Inisialisasi repo + dokumen kerja
-- [ ] POC: hakodb 0.20.6 (hybrid_search, subgraph_json, graph_pagerank)
-- [ ] POC: embedder MiniLM lokal (fastembed-rs / ort)
+- [x] POC: hakodb 0.20.6 (hybrid_search, subgraph_json, graph_pagerank)
+- [x] POC: embedder MiniLM lokal (candle pure-Rust, mean pooling)
 - [ ] Server axum + endpoint /v1
 - [ ] Plugin OpenCode
 - [ ] Skill learner + MCP adapter

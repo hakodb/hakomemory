@@ -5,6 +5,32 @@
 
 ## 0. Temuan POC (terverifikasi dari source v0.20.6 + eksekusi)
 
+### 0.1 Hasil POC fase 1 (semua lolos)
+
+- **Wave-1 API** (`crates/mb-poc/src/main.rs`): hybrid RRF, KNN scored,
+  BFS via `via_edge`, subgraph_json, graph_pagerank, graph_communities,
+  persist-HNSW (reopen + await_quiescent siap ~10 ms).
+- **Embedder MiniLM pure-Rust** (`crates/mb-embed` + `src/bin/embed_poc.rs`):
+  candle 0.11 + hf-hub (rustls) + tokenizers; mean pooling + L2 normalize;
+  end-to-end hybrid_search dengan embedding asli — hasil relevan.
+- **Perf (release, unbatched, 1 forward per teks)**: ~23 doc/s indexing,
+  query embed 37–114 ms. Batching = pekerjaan fase 2.
+- **Lewat OSS: fastembed ditolak** — binary ONNX prebuilt (ort-sys) butuh
+  glibc 2.32+/libstdc++ baru; box CentOS 7 (glibc 2.17). → candle pure-Rust.
+
+### 0.2 Kendala yang dikunci
+
+1. **Hako::open harus inisialisasi rayon global PERTAMA** (engine memanggil
+   `build_global().unwrap()` di `RAYON_INIT.call_once` — panik jika pool
+   sudah diambil candle/tokenizers). Server: buka instance project sebelum
+   embedder aktif; embedder tidak boleh jalan sebelum open pertama.
+2. **API candle 0.11**: `BertModel::load(vb, config)` auto-deteksi prefix;
+   `forward(input_ids, token_type_ids, attention_mask)`; `pow` butuh shape
+   sama (pakai `sqr()`); normalisasi L2 manual.
+3. **MiniLM English-primary** — query Indonesia sedikit melemah (observasi
+   POC); komentar kode umumnya Inggris, tetap layak. Opsi upgrade:
+   `jinaai/jina-embeddings-v2-base-code` (kode) atau model bilingual.
+
 ```rust
 // engine (src/engine/engine.rs)
 hybrid_search(collection, text_field, text_query, vec_field, query: &[f32],

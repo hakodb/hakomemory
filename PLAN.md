@@ -31,6 +31,29 @@
    POC); komentar kode umumnya Inggris, tetap layak. Opsi upgrade:
    `jinaai/jina-embeddings-v2-base-code` (kode) atau model bilingual.
 
+### 0.3 Hasil fase 2–3 (server + plugin, teruji end-to-end)
+
+- **Perf release**: index 804 chunk (72 file) / 33 s (~24 chunk/s, unbatched);
+  retrieve end-to-end (embed query + hybrid) ≈ 60 ms; debug build 40× lebih
+  lambat → selalu release.
+- **Plugin OpenCode V2.0.24 tervalidasi live** (`plugins/memory-box/index.ts`):
+  - Muat via `plugins: [<path>]` di `opencode.json` — **tanpa node/npm**:
+    plugin = default export `{ id, setup }` (Plugin.define identity; import
+    `@opencode/plugin` gagal di-resolve karena box tanpa node).
+  - hook `prompt` → episodic ✅ (terverifikasi via /v1/memory/search)
+  - hook `context` → injeksi blok `<memory-box>` ✅ (model melaporkan isi blok)
+  - tools `memory.search/save/graph` dipanggil model via Code Mode ✅
+  - Kegagalan server = plugin pasif (fail-safe) ✅
+- **Sumber kebenaran tipe plugin**: tarball npm `@opencode/plugin` 2.3.0 +
+  `@opencode/schema` 2.3.0 (node_modules di-gitignore); kesimpulan tipe:
+  - `SessionPrompt.prompt = { text, ... }` (PromptInput.Prompt)
+  - `SessionContext = { system: SystemPart[], messages: Message[], options }`;
+    `SystemPart = { type: "text", text }`
+  - Message user/assistant: `{ role, content: ContentPart[] }` — part teks di
+    `content`, BUKAN `parts`
+  - `Tool.Info = { name, input, description, execute(input, ctx),
+    options: { namespace?, codemode? } }`; `Result = { content?: string }`
+
 ```rust
 // engine (src/engine/engine.rs)
 hybrid_search(collection, text_field, text_query, vec_field, query: &[f32],

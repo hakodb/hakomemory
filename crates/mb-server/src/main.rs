@@ -42,6 +42,14 @@ use state::AppState;
         .route("/v1/memory/write", axum::routing::post(api::memory_write))
         .route("/v1/memory/search", axum::routing::post(api::memory_search))
         .route("/v1/memory/forget", axum::routing::post(api::memory_forget))
+        .layer(axum::middleware::from_fn(|req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| async move {
+            let started = std::time::Instant::now();
+            let method = req.method().clone();
+            let path = req.uri().path().to_string();
+            let res = next.run(req).await;
+            tracing::info!(%method, %path, status = %res.status(), ms = started.elapsed().as_millis(), "request");
+            res
+        }))
         .with_state(app_state);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));

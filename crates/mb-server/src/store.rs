@@ -48,9 +48,25 @@ impl ProjectStore {
         Ok((pid, db))
     }
 
+    /// Ambil instance project; lazy-open dari data dir jika belum ada
+    /// (robust terhadap restart server — project_id adalah nama direktori).
     pub fn get(&self, pid: &str) -> Result<Arc<Hako>> {
-        let map = self.instances.lock().unwrap();
-        map.get(pid).cloned().ok_or_else(|| anyhow!("project belum dibuka: {pid}"))
+        {
+            let map = self.instances.lock().unwrap();
+            if let Some(h) = map.get(pid) {
+                return Ok(h.clone());
+            }
+        }
+        let dir = self.data_dir.join("projects").join(pid);
+        if !dir.is_dir() {
+            return Err(anyhow!("project tidak dikenal: {pid}"));
+        }
+        let db = Arc::new(Hako::open(&dir, hakodb::config::HakoConfig::default())?);
+        ensure_schema(&db)?;
+        // recovery index async — tunggu sebelum dipakai untuk query
+        let _ = db.await_quiescent(std::time::Duration::from_secs(600));
+        self.instances.lock().unwrap().insert(pid.to_string(), db.clone());
+        Ok(db)
     }
 
     pub fn data_dir(&self) -> &PathBuf {

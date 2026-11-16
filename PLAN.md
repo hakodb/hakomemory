@@ -1,6 +1,6 @@
 # memory-box — RAG Server untuk OpenCode
 
-> Dokumen kerja. Status: fase POC — wave-1 API lolos, embedder MiniLM berjalan.
+> Dokumen kerja. Status: fase 2 inti server berjalan (teruji end-to-end via HTTP).
 > Terakhir diperbarui: 2026-11-16
 
 ## 0. Temuan POC (terverifikasi dari source v0.20.6 + eksekusi)

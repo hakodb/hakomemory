@@ -21,6 +21,8 @@ plugins/        plugin OpenCode TS (fase 3)
 - [x] Inisialisasi repo + dokumen kerja
 - [x] POC: hakodb 0.20.6 (hybrid_search, subgraph_json, graph_pagerank)
 - [x] POC: embedder MiniLM lokal (candle pure-Rust, mean pooling)
-- [ ] Server axum + endpoint /v1
+- [x] Server axum inti (teruji): multi-project store, /v1/*, memory CRUD
+- [ ] Server: indexer tree-sitter (simbol + call-graph), WS progress
+- [ ] Server: release build + benchmark indexing
 - [ ] Plugin OpenCode
 - [ ] Skill learner + MCP adapter

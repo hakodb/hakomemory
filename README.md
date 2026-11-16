@@ -22,8 +22,8 @@ plugins/        plugin OpenCode TS (fase 3)
 - [x] POC: hakodb 0.20.6 (hybrid_search, subgraph_json, graph_pagerank)
 - [x] POC: embedder MiniLM lokal (candle pure-Rust, mean pooling)- [x] Server axum inti (teruji): multi-project store, /v1/*, memory CRUD
 - [x] Server: lazy-open project (robust restart), request logging
+- [x] Server: indexer tree-sitter (simbol + call-graph, lookup) — tervalidasi
 - [x] Plugin OpenCode V2 (teruji): hooks context/prompt/compaction + tools memory.*
-- [ ] Server: indexer tree-sitter (simbol + call-graph), WS progress
 - [ ] Server: skill learner (ctx.experimental.generate.text → procedural)
 - [ ] MCP adapter tipis
 - [ ] Evaluasi penghematan token vs baseline

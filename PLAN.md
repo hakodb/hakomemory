@@ -18,7 +18,37 @@
 - **Lewat OSS: fastembed ditolak** — binary ONNX prebuilt (ort-sys) butuh
   glibc 2.32+/libstdc++ baru; box CentOS 7 (glibc 2.17). → candle pure-Rust.
 
+### 0.4 Hasil fase 4a: indexer tree-sitter + call-graph (teruji)
+
+- **Koleksi baru**: `symbols` (name, kind, path, start_line, `ref_chunks` →
+  chunks Reference) + `edges` (`_from`/`_to` Reference, kind=call, w=2).
+- **Edge id stabil** = hash(caller|callee|kind) → re-scan idempotent.
+- **Percobaan & pemecahan bug** (penting untuk pengembangan lanjut):
+  - Satu pattern invalid mematikan seluruh `Query::new` (silent) → query
+    per-pattern dengan skip+log.
+  - Node Rust: `type_item` (bukan `type_alias_declaration`); TS
+    `class_declaration name: (type_identifier)` (bukan `identifier`).
+  - Span simbol = **parent** node capture `@name` (node definisi), bukan node
+    nama — wajib agar call di body terhitung "di dalam" simbol.
+  - Innermost enclosing: urutkan simbol `start_byte` **DESC**, lalu
+    `position()` menemukan simbol terdalam lebih dulu.
+  - Call berkualifikasi (`indexer::scan`): pattern
+    `(call_expression function: (scoped_identifier name: (identifier) @callee))`.
+- **Traverse `Both`** untuk graph/context → caller + callee dalam satu subgraph
+  (edge index incoming butuh backlink? tidak — v0.15.0: incoming via edge
+  collection tidak perlu backlink).
+- **Struktur `subgraph_json`** (penting): `nodes` memuat juga **edge docs**
+  (collection `edges`, field `_from`/`_to` = `{"__ref__": "col/id"}`);
+  `edges[]` = pasangan (edge-doc → endpoint). Rendering plugin harus
+  mendereferensi `_from`/`_to` dari edge doc, bukan langsung `edges[]`.
+- **Perf**: 13 file → 84 simbol + 103 edge call + 46 chunk, sekali scan.
+- Plugin `memory.graph`: seed nama simbol di-resolve via `/v1/symbols/lookup`
+  (Eq filter), subgraph dirender "caller → callee (call)" dengan path:line.
+
+
 ### 0.2 Kendala yang dikunci
+
+
 
 1. **Hako::open harus inisialisasi rayon global PERTAMA** (engine memanggil
    `build_global().unwrap()` di `RAYON_INIT.call_once` — panik jika pool

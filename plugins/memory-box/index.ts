@@ -201,11 +201,11 @@ export default {
       editor.add({
         name: "graph",
         description:
-          "Ambil subgraph konteks di sekitar seed (collection/id), mis. simbol terkait dan dependensinya",
+          "Ambil subgraph konteks di sekitar simbol: siapa memanggil apa, dependensi, dan chunk kodenya. Seed bisa nama simbol (mis. \"scan\") atau \"symbols/<id>\".",
         input: {
           type: "object",
           properties: {
-            seed: { type: "string", description: "collection/id, mis. symbols/nama" },
+            seed: { type: "string", description: "nama simbol (mis. scan) atau collection/id" },
             hops: { type: "integer", description: "jarak lompatan (default 2, max 8)" },
           },
           required: ["seed"],
@@ -214,13 +214,53 @@ export default {
         options: { namespace: "memory", codemode: true },
         execute: async (input) => {
           const { seed, hops } = input
+          let resolved = seed
+          if (!seed.includes("/")) {
+            // seed = nama simbol → resolve ke symbols/<id>
+            const lk = await post(`${server}/v1/symbols/lookup`, {
+              project_id: projectID,
+              name: seed,
+              k: 5,
+            })
+            const hit = lk?.hits?.[0]
+            if (!hit) return { content: `simbol "${seed}" tidak ditemukan` }
+            resolved = `symbols/${hit.id}`
+          }
           const res = await post(`${server}/v1/graph/context`, {
             project_id: projectID,
-            seed,
+            seed: resolved,
             hops,
           })
           if (!res) return { content: "memory-box server tidak merespons" }
-          return { content: JSON.stringify(res) }
+          // node bisa simbol/chunk; hop via koleksi edge disajikan sebagai
+          // node edge-doc yang membawa _from/_to ({"__ref__": "col/id"}).
+          const nodes = res.nodes ?? []
+          const docById = {}
+          for (const n of nodes) docById[`${n.collection}/${n.id}`] = n.doc ?? {}
+          const deref = (x) =>
+            x && typeof x === "object" && typeof x.__ref__ === "string" ? x.__ref__ : x
+          const nameOf = (ref) => {
+            const doc = docById[ref]
+            if (!doc) return ref
+            const col = String(ref).split("/")[0]
+            if (col === "symbols")
+              return `${doc.name ?? ""} [${doc.kind ?? "?"}] ${doc.path ?? ""}:${doc.start_line ?? ""}`
+            if (col === "chunks") return `${doc.path ?? ""}:${doc.start_line ?? 0}`
+            return ref
+          }
+          const lines = []
+          for (const e of res.edges ?? []) {
+            const fd = docById[e.from]
+            if (fd && fd._from) {
+              lines.push(
+                `${nameOf(deref(fd._from))} -> ${nameOf(deref(fd._to))}${fd.kind ? ` (${fd.kind})` : ""}`,
+              )
+            } else {
+              lines.push(`${nameOf(e.from)} -> ${nameOf(e.to)}`)
+            }
+          }
+          const header = `subgraph dari ${resolved}: ${nodes.length} node, ${lines.length} edge`
+          return { content: `${header}\n${lines.join("\n")}` }
         },
       })
     })

@@ -169,7 +169,7 @@ pub async fn graph_context(
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
         let spec = hakodb::index::traverse::TraverseSpec {
-            direction: hakodb::index::traverse::TraverseDir::Outgoing,
+            direction: hakodb::index::traverse::TraverseDir::Both,
             via_edge: Some("edges".into()),
             max_depth: hops,
             limit: 200,
@@ -184,6 +184,44 @@ pub async fn graph_context(
         let json = db.subgraph_json(&col, &id, &spec)?;
         let v: serde_json::Value = serde_json::from_str(&json)?;
         Ok::<_, anyhow::Error>(v)
+    })
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(res))
+}
+
+#[derive(Deserialize)]
+pub struct SymbolsLookup {
+    pub project_id: String,
+    pub name: String,
+    #[serde(default = "default_k")]
+    pub k: usize,
+}
+
+/// Resolve nama simbol → id + lokasi (untuk seed graph dari plugin).
+pub async fn symbols_lookup(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<SymbolsLookup>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let store = state.store.clone();
+    let (pid, name, k) = (input.project_id.clone(), input.name.clone(), input.k);
+    let res = tokio::task::spawn_blocking(move || {
+        let db = store.get(&pid)?;
+        let rows = crate::indexer::lookup_symbol(&db, &name, k.min(50))?;
+        let hits: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|(id, doc)| {
+                serde_json::json!({
+                    "id": id,
+                    "name": str_field(doc, "name"),
+                    "kind": str_field(doc, "kind"),
+                    "path": str_field(doc, "path"),
+                    "start_line": int_field(doc, "start_line"),
+                })
+            })
+            .collect();
+        Ok::<_, anyhow::Error>(serde_json::json!({ "hits": hits }))
     })
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?

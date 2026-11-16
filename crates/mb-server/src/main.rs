@@ -1,6 +1,7 @@
 mod api;
 mod embed;
 mod indexer;
+mod parser;
 mod state;
 mod store;
 
@@ -39,6 +40,7 @@ use state::AppState;
         .route("/v1/index/status", axum::routing::get(api::index_status))
         .route("/v1/retrieve", axum::routing::post(api::retrieve))
         .route("/v1/graph/context", axum::routing::post(api::graph_context))
+        .route("/v1/symbols/lookup", axum::routing::post(api::symbols_lookup))
         .route("/v1/memory/write", axum::routing::post(api::memory_write))
         .route("/v1/memory/search", axum::routing::post(api::memory_search))
         .route("/v1/memory/forget", axum::routing::post(api::memory_forget))

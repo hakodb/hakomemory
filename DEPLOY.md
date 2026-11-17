@@ -121,7 +121,9 @@ Buat/ubah `opencode.json` di direktori project tersebut:
 ```
 
 `projectPath` mengikat plugin ke codebase tertentu meski sesi dibuka dari
-direktori lain. Tanpa itu plugin memakai direktori project sesi. Restart sesi
+direktori lain. **Salin** `index.ts` (atau arahkan `package` ke direktori plugin
+asli) — jangan hanya membuat symlink `index.ts`: loader plugin OpenCode tidak
+mengikuti symlink, sehingga tool `memory.*` tidak akan terdaftar. Tanpa itu plugin memakai direktori project sesi. Restart sesi
 OpenCode agar plugin termuat. Opsi lingkungan: `MEMORYBOX_DISTILL_MODEL`
 (model untuk ringkasan distill; kuota mengikuti akun OpenCode masing-masing),
 `MEMORYBOX_DISTILL_MODE=mock` (uji tanpa LLM).

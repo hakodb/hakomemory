@@ -29,7 +29,7 @@ const SKIP_DIRS: [&str; 10] = [
 
 const SKIP_FILES: [&str; 3] = [".lock", ".sum", ".snap"];
 
-fn is_source(path: &Path) -> bool {
+pub fn is_source(path: &Path) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => matches!(
             ext,
@@ -136,6 +136,12 @@ pub fn scan(
             .strip_prefix(root)
             .map(|r| r.to_string_lossy().to_string())
             .unwrap_or_else(|_| file.to_string_lossy().to_string());
+        // scan file tunggal: strip_prefix(root) menghasilkan "" — pakai nama file
+        let rel = if rel.is_empty() {
+            file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(rel)
+        } else {
+            rel
+        };
         let mut chunk_list = Vec::new();
         for (start, text) in chunk_lines(&content) {
             if text.trim().is_empty() {

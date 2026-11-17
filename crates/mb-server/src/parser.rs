@@ -251,3 +251,5 @@ interface Ctx { a: number }
         assert!(p.calls.iter().any(|c| c.callee == "helper" && c.enclosing == run_idx.unwrap()), "call helper dari run");
     }
 }
+
+

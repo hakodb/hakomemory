@@ -36,11 +36,22 @@ pub async fn projects_open(
     State(state): State<Arc<AppState>>,
     Json(input): Json<ProjectsOpen>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let store = state.store.clone();
     let path = input.path.clone();
+    let app = state.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let (pid, db) = store.open_project(&path)?;
+        let (pid, db) = app.store.open_project(&path)?;
         assert!(db.await_quiescent(std::time::Duration::from_secs(600)), "recovery index harus selesai");
+        // auto-watch (MEMORYBOX_WATCH=0 untuk mematikan)
+        if std::env::var("MEMORYBOX_WATCH").as_deref() != Ok("0") && app.watches.ensure(&pid) {
+            if let Err(e) = crate::watcher::spawn(
+                app.store.clone(),
+                app.embedder.clone(),
+                pid.clone(),
+                std::path::PathBuf::from(&path),
+            ) {
+                tracing::warn!("watcher gagal dimulai: {e}");
+            }
+        }
         Ok::<_, anyhow::Error>(pid)
     })
     .await

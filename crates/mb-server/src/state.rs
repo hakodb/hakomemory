@@ -3,6 +3,7 @@
 
 use crate::embed::SharedEmbedder;
 use crate::store::ProjectStore;
+use crate::watcher;
 use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 pub struct AppState {
     pub store: Arc<ProjectStore>,
     pub embedder: Arc<SharedEmbedder>,
+    pub watches: watcher::WatchRegistry,
 }
 
 impl AppState {
@@ -21,6 +23,6 @@ impl AppState {
         let cache = data_dir.join("model-cache");
         let embedder = Arc::new(SharedEmbedder::load(&cache)?);
 
-        Ok(Arc::new(Self { store, embedder }))
+        Ok(Arc::new(Self { store, embedder, watches: watcher::WatchRegistry::default() }))
     }
 }

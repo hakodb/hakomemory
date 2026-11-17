@@ -65,7 +65,29 @@
 - Hook `compaction` menulis snapshot `semantic` (raw) + menjalankan
   `distill(tail)` fire-and-forget → `mem_procedural` otomatis.
 
+### 0.6 Hasil fase 4c: auto-indexing watcher (teruji)
 
+- Crate `notify` 8.2 (inotify); thread std per project (registry per-pid di
+  AppState; `MEMORYBOX_WATCH=0` untuk mematikan; watcher dibuka di
+  `projects/open`).
+- **Debounce 1.5 s**: flush saat sunyi → scan ulang **per file** yang
+  berubah (bukan seluruh root) → murah.
+- Filter event: hanya `Create|Modify`, file source, ≤256 KB, bukan di
+  SKIP_DIRS (target/node_modules/.git/...).
+- **Bug penting**: scan file tunggal → `rel = strip_prefix(root) == ""` →
+  ekstensi tak terbaca → parser di-skip (simbol 0). Fix: rel kosong →
+  pakai `file_name`. Konsekuensi: simbol/edge hasil re-scan file tunggal
+  memakai rel pendek (`parser.rs`) beda dengan scan root penuh
+  (`mb-server/src/parser.rs`) → id simbol beda untuk file yang sama.
+  TODO: normalisasi rel di watcher.
+- TODO lanjutan: pembersihan simbol/edge stale saat file berubah/dihapus
+  (simbol lama masih ada setelah fungsi dihapus — terverifikasi).
+- Terverifikasi live: edit file → log "watcher re-scan selesai files=1" →
+  simbol baru langsung ditemukan `/v1/symbols/lookup`.
+- Watcher hidup per-proses — setelah restart server, aktif lagi saat
+  `projects/open` dipanggil (plugin memanggil tiap sesi, jadi otomatis).
+
+### 0.2 Kendala yang dikunci
 
 1. **Hako::open harus inisialisasi rayon global PERTAMA** (engine memanggil
    `build_global().unwrap()` di `RAYON_INIT.call_once` — panik jika pool

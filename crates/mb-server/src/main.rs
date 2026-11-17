@@ -4,6 +4,7 @@ mod indexer;
 mod parser;
 mod state;
 mod store;
+mod watcher;
 
 use anyhow::Result;
 use state::AppState;

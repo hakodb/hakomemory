@@ -23,7 +23,10 @@ plugins/        plugin OpenCode TS (fase 3)
 - [x] POC: embedder MiniLM lokal (candle pure-Rust, mean pooling)- [x] Server axum inti (teruji): multi-project store, /v1/*, memory CRUD
 - [x] Server: lazy-open project (robust restart), request logging
 - [x] Server: indexer tree-sitter (simbol + call-graph, lookup) — tervalidasi
+- [x] Server: auto-indexing watcher (notify, debounce, re-scan per file) — tervalidasi
 - [x] Plugin OpenCode V2 (teruji): hooks context/prompt/compaction + tools memory.*
-- [ ] Server: skill learner (ctx.experimental.generate.text → procedural)
+- [x] Plugin: skill learner (distilasi → mem_procedural; loop tervalidasi,
+      generate.text terblokir kuota model gratis — blocker lingkungan)
+- [ ] Server: pembersihan simbol/edge stale + normalisasi rel watcher
 - [ ] MCP adapter tipis
 - [ ] Evaluasi penghematan token vs baseline

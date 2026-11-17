@@ -70,3 +70,40 @@ Env yang diusulkan: `MEMORYBOX_EMBED_URL`, `MEMORYBOX_EMBED_TOKEN`, `MEMORYBOX_E
 - Fase B: adapter Gemini/NIM terpisah + benchmark `hit@5`, latency, biaya.
 - Fase C: migrasi field/index versi baru + backfill, rollback ke 384d kapan saja.
 - Fase D: ganti default hanya bila eval menang signifikan.
+
+---
+
+## 7. Update: opsi online 384d & batas dimensi HakoDB (2026-11-17)
+
+### HakoDB v0.21.0
+`src/index/vector.rs:82`: `pub const MAX_DIM: u32 = 4096;` dengan validasi
+`dim == 0 || dim > MAX_DIM → InvalidInput`. Jadi **384–1024 didukung penuh**.
+`hnsw_m_for_dim()` juga menyesuaikan `M` sesuai dimensi (D=384→59, D=4096→64),
+jadi tidak ada alasan teknis membatasi memory-box ke 384.
+
+### Online yang bisa 384d (terverifikasi dari docs)
+
+| Provider | Model | Cara 384d | Catatan |
+|---|---|---|---|
+| **OpenAI** | `text-embedding-3-small` | `dimensions: 384` | MRL shortening; default 1536, max 8192 token. MTEB 62.3. Berbayar per token. |
+| **Cohere** | `embed-multilingual-light-v3.0` | **native 384** | Multibahasa termasuk **Indonesia**; max 512 token; lebih cepat/murah dari v3.0 penuh (1024). `embed-english-light-v3.0` juga 384. |
+| **Google Gemini** | `gemini-embedding-001` / `-2` | `output_dimensionality: 384` | Docs menyebut rentang 128–3072; 384 tidak dalam rekomendasi (768/1536/3072), jadi **perlu di-evaluasi** kualitasnya. |
+| **Jina / lainnya** | vendor MRL | biasanya `dimensions` | Perlu verifikasi per-model; prinsipnya sama dengan OpenAI. |
+
+Catatan: Cohere `embed-v5.0-*` tidak punya 384 (pilihan 256/512/768/1024/1536/2048), tapi `embed-multilingual-light-v3.0` masih tersedia dan **paling cocok** untuk kebutuhan 384d + bahasa Indonesia.
+
+### Kesimpulan revisi
+
+Karena opsi 384d ada (terutama Cohere multilingual-light-v3.0), dan HakoDB
+mendukung sampai 4096, rekomendasi最终 adalah:
+- **Pertahankan MiniLM lokal sebagai default** (gratis, privat, 29–31 ms).
+- **Jadikan memory-box model-agnostik untuk 384–1024**: dimensi bukan konstanta
+  kompile, tetapi `EmbeddingSpec { model_id, dim, metric, provider }` yang
+  dipersisten di `meta`. `ensure_schema` memakai `spec.dim`.
+- Ganti `assert_eq!(embedder.dim(), DIM)` dengan validasi terhadap spec;
+  kalau berbeda → error migrasi yang jelas (jangan silent).
+- Karena `ensure_indexes` v0.21 error bila def vector berbeda, perubahan dim
+  wajib memakai **field/index baru** (`emb_<d>`) atau koleksi versi baru +
+  re-embed; jangan menimpa `emb` lama.
+- Backend: lokal candle, HTTP self-hosted, atau adapter vendor—semuanya
+  lewat `TextEmbedder` yang sudah ada.

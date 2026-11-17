@@ -474,3 +474,17 @@ masih terbuka.
   Latensi 30–31 ms vs 445–575 ms. NIM tidak lebih baik → default tetap lokal.
 - Gemini 384d tertahan HTTP 429 berulang saat batch indexing; dicatat sebagai
   keterbatasan rate limit, bukan bug adapter.
+
+
+### 0.14 mb-embed-srv — embedder lokal untuk deploy lintas box (teruji)
+
+- Crate baru `crates/mb-embed-srv`: load MiniLM (candle) dari cache HF,
+  expose `GET /dim` + `POST /embed` dengan token auth opsional, bind
+  `MEMORYBOX_EMBED_HOST`/`_PORT` (default 127.0.0.1:7416).
+- Melengkapi sisi client `HttpEmbedder` di `mb-server` (sudah ada sejak §0.11).
+- Teruji: tanpa token → 401; dengan token → dim 384; server remote
+  (`MEMORYBOX_EMBED_URL`, DIM=384, token) berhasil scan 218 chunk, retrieve 2
+  hit, latensi 33–34 ms (≈ lokal karena masih satu box saat uji).
+- Distill tetap memakai model sesi OpenCode bila `MEMORYBOX_DISTILL_MODEL`
+  kosong — `ctx.generate.text` dipanggil tanpa opsi `model` (plugin
+  `index.ts:145`). Env override hanya untuk memilih model berbeda.

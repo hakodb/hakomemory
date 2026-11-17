@@ -52,6 +52,7 @@ docs/           design log + auth assessment
       HTTP embedder backend, hard error on dimension mismatch
 - [x] Vendor adapter: `mb-embed-adapter` bridges internal HTTP to Cohere,
       OpenAI, Gemini, or NVIDIA NIM with query/document roles
+- [x] `mb-embed-srv`: local MiniLM exposed over internal HTTP for cross-box deploy
 - [x] Agent guidance: skill, read-only subagent, `AGENTS.md`
 - [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
@@ -98,6 +99,9 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_EMBED_DIM` | required if URL | vector dimension of the HTTP embedder |
 | `MEMORYBOX_EMBED_TOKEN` | unset | bearer token for the HTTP embedder |
 | `MEMORYBOX_EMBED_MODEL` | `http-embedder` | model id recorded in project spec |
+| `MEMORYBOX_EMBED_HOST` | `127.0.0.1` | `mb-embed-srv` bind host |
+| `MEMORYBOX_EMBED_PORT` | `7416` | `mb-embed-srv` bind port |
+| `MEMORYBOX_EMBED_TOKEN` | unset | shared token between server and embedder |
 | `MEMORYBOX_ADAPTER_PROVIDER` | — | adapter: `cohere\|openai\|gemini\|nim` |
 | `MEMORYBOX_ADAPTER_API_KEY` | — | vendor API key (adapter process only) |
 | `MEMORYBOX_ADAPTER_DIM` | `384` | output dimension |

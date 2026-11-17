@@ -256,3 +256,30 @@ Role otomatis: `embed_one()` (query) mengirim `role: "query"` →
 (Gemini v2); `embed()` (indexing) mengirim `role: "document"`.
 
 Untuk pengujian tanpa kuota, set `MEMORYBOX_ADAPTER_BASE_URL=http://127.0.0.1:<mock>`.
+
+## Cross-box deployment (MiniLM tetap di box A, server di box B)
+
+Box A (model):
+```bash
+MEMORYBOX_EMBED_HOST=10.10.8.4 MEMORYBOX_EMBED_PORT=7416 \
+MEMORYBOX_EMBED_TOKEN=<shared-token> \
+./target/release/mb-embed-srv
+```
+
+Box B (server):
+```bash
+MEMORYBOX_DATA=/home/riza/.memory-box \
+MEMORYBOX_HOST=0.0.0.0 MEMORYBOX_PORT=7412 \
+MEMORYBOX_AUTH_SECRET=<secret> \
+MEMORYBOX_EMBED_URL=http://10.10.8.4:7416 \
+MEMORYBOX_EMBED_DIM=384 MEMORYBOX_EMBED_TOKEN=<shared-token> \
+./target/release/mb-server
+```
+
+Catatan:
+- `mb-embed-srv` hanya melayani `/dim` + `/embed`; token wajib bila diset.
+- Copy `projects/` dari box A ke box B saat server stopped, atau biarkan rescan
+  (project id berbasis path canonical — path harus sama).
+- Batasi akses: iptables hanya loopback + subnet internal untuk 7412/7416.
+- Tanpa vhost; endpoint permanen langsung ke IP internal box B.
+- Teruji lokal: scan 218 chunk + retrieve 33 ms lewat mode remote.

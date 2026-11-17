@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Context, Result};
 use hakodb::document::hako_doc::HakoDoc;
 use hakodb::document::value::Value;
-use hakodb::engine::{BatchMutation, Hako};
+use hakodb::engine::{BatchMutation, Hako, IndexSchema};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -102,16 +102,27 @@ pub fn read_root(db: &Hako) -> Result<Option<String>> {
 /// Buat semua index SEBELUM tulis pertama (kontrak hakodb).
 /// Idempotent: aman dipanggil setiap kali instance dibuka.
 pub fn ensure_schema(db: &Hako) -> Result<()> {
-    db.create_fts_index("chunks", "content")
-        .context("fts chunks")?;
-    db.create_vector_index("chunks", "emb", DIM, hakodb::index::vector::Metric::Cosine)
-        .context("vector chunks")?;
-    db.create_traverse_index("symbols").context("traverse symbols")?;
+    // v0.21.0: deklarasi skema sekali, idempotent (def sama = no-op).
+    use hakodb::index::vector::Metric;
+    let schema = IndexSchema {
+        fts: std::iter::once(("chunks".to_string(), "content".to_string()))
+            .chain(MEMORY_COLLECTIONS.iter().map(|c| (c.to_string(), "text".to_string())))
+            .collect(),
+        vector: std::iter::once((
+            "chunks".to_string(),
+            "emb".to_string(),
+            DIM,
+            Metric::Cosine,
+        ))
+        .chain(MEMORY_COLLECTIONS.iter().map(|c| {
+            (c.to_string(), "emb".to_string(), DIM, Metric::Cosine)
+        }))
+        .collect(),
+        tracked: vec!["symbols".into(), "edges".into()],
+    };
+    db.ensure_indexes(&schema).context("ensure_indexes")?;
+    // create_edge_index juga membuat index _from/_to (tidak termasuk
+    // IndexSchema.tracked). Di v0.21 create_index sudah idempotent.
     db.create_edge_index("edges").context("edge edges")?;
-    for col in MEMORY_COLLECTIONS {
-        db.create_fts_index(col, "text").with_context(|| format!("fts {col}"))?;
-        db.create_vector_index(col, "emb", DIM, hakodb::index::vector::Metric::Cosine)
-            .with_context(|| format!("vector {col}"))?;
-    }
     Ok(())
 }

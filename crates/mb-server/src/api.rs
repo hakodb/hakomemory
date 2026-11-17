@@ -10,6 +10,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json};
 use hakodb::document::hako_doc::HakoDoc;
 use hakodb::document::value::Value;
+use hakodb::query::filter::{Filter, Operator};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -453,23 +454,28 @@ pub async fn memory_search(
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
-    let sub = auth.sub.clone();
-    let is_admin = auth.admin;
+    // v0.21.0: filter owner ditaruh di engine (sebelum peringkat), bukan
+    // over-fetch + buang di aplikasi. Admin tanpa filter melihat semua,
+    // termasuk dokumen legacy tanpa user_id.
+    let filters: Vec<Filter> = if auth.admin {
+        Vec::new()
+    } else {
+        vec![Filter {
+            field: "user_id".into(),
+            op: Operator::Eq,
+            value: Value::String(auth.sub.clone()),
+        }]
+    };
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
         let qv = embedder.embed_one(&query)?;
         // k per koleksi lalu merge-score, ambil k terbaik
         let mut hits: Vec<serde_json::Value> = Vec::new();
         for (col, kind) in &cols {
-            // ambil lebih banyak kandidat lalu filter owner (hybrid_search
-            // belum punya filter field). Non-admin tidak melihat dokumen lama
-            // tanpa user_id sampai di-backfill.
-            let want = if is_admin { k } else { k.saturating_mul(5).max(20) };
-            let rows = db.hybrid_search(col.as_str(), "text", &query, "emb", &qv, want, 60)?;
+            let rows = db.hybrid_search_filtered(
+                col.as_str(), "text", &query, "emb", &qv, k, 60, &filters,
+            )?;
             for (id, score, doc) in rows {
-                if !is_admin && !matches!(doc.get("user_id"), Some(Value::String(u)) if u == &sub) {
-                    continue;
-                }
                 hits.push(serde_json::json!({
                     "id": id,
                     "kind": kind.as_str(),

@@ -463,6 +463,54 @@ async fn rate_limit_per_user() {
     assert_eq!(call(&app, "GET", "/healthz", json!({}), None).await, StatusCode::OK);
 }
 
+#[tokio::test]
+async fn filtered_search_menjamin_full_k() {
+    let dir = temp_root();
+    let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
+    let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
+    let app = app_with_auth(&dir);
+    let alice = token("alice", &[], &[canonical.clone()], false);
+    let bob = token("bob", &[], &[canonical.clone()], false);
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/projects/open",
+            json!({ "path": canonical }), Some(&alice)
+        ).await,
+        StatusCode::OK
+    );
+    // bob lebih banyak menulis, tapi alice harus tetap dapat k penuh
+    for i in 0..5 {
+        let (status, _) = call_json(
+            &app, "POST", "/v1/memory/write",
+            json!({ "project_id": pid, "kind": "semantic",
+                    "text": format!("bob topik bersama dokumen nomor {i}") }),
+            Some(&bob),
+        ).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    for i in 0..3 {
+        let (status, _) = call_json(
+            &app, "POST", "/v1/memory/write",
+            json!({ "project_id": pid, "kind": "semantic",
+                    "text": format!("alice topik bersama dokumen nomor {i}") }),
+            Some(&alice),
+        ).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, out) = call_json(
+        &app, "POST", "/v1/memory/search",
+        json!({ "project_id": pid, "kind": "semantic", "query": "topik bersama", "k": 3 }),
+        Some(&alice),
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    let hits = out["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 3, "harus dapat 3 hit penuh: {out}");
+    assert!(
+        hits.iter().all(|h| h["text"].as_str().unwrap().starts_with("alice")),
+        "tidak boleh ada dokumen bob: {out}"
+    );
+}
+
 fn hex12(d: &[u8]) -> String {
     d.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }

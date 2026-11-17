@@ -8,12 +8,13 @@
 use crate::embed::SharedEmbedder;
 use crate::indexer;
 use crate::store::ProjectStore;
+use hakodb::engine::Hako;
 use anyhow::Result;
 use notify::{Event, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 const DEBOUNCE: Duration = Duration::from_millis(1500);
@@ -90,8 +91,10 @@ fn run(store: Arc<ProjectStore>, embedder: Arc<SharedEmbedder>, pid: String, roo
     if watcher.watch(&root, RecursiveMode::Recursive).is_err() {
         return;
     }
-    // buka instance sekali di awal (lazy-open dipakai ulang oleh get)
-    let Ok(db) = store.get(&pid) else { return };
+    // Jangan pegang Arc<Hako> seumur hidup: itu mengunci project agar tidak
+    // pernah bisa di-eviksi LRU. Simpan Weak, upgrade saat flush; kalau sudah
+    // ter-eviksi, buka ulang lewat store.get(pid).
+    let mut db_weak: Option<Weak<Hako>> = None;
 
     let mut pending: HashSet<PathBuf> = HashSet::new();
     loop {
@@ -106,6 +109,17 @@ fn run(store: Arc<ProjectStore>, embedder: Arc<SharedEmbedder>, pid: String, roo
                 if pending.is_empty() {
                     continue;
                 }
+                let db = match db_weak.as_ref().and_then(|w| w.upgrade()) {
+                    Some(db) => db,
+                    None => {
+                        let Ok(db) = store.get(&pid) else {
+                            tracing::warn!(pid = %pid, "watcher gagal membuka ulang project");
+                            continue;
+                        };
+                        db_weak = Some(Arc::downgrade(&db));
+                        db
+                    }
+                };
                 let files: Vec<PathBuf> = pending.drain().collect();
                 let mut ok = 0usize;
                 for f in &files {

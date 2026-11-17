@@ -1,4 +1,4 @@
-//! Manager instance HakoDB per project + skema koleksi/index.
+//! Manager instance HakoDB per project + skema koleksi/index + LRU.
 
 use anyhow::{anyhow, Context, Result};
 use hakodb::document::hako_doc::HakoDoc;
@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub const DIM: u32 = 384;
 
@@ -23,31 +24,125 @@ fn hex12(d: &[u8]) -> String {
     d.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }
 
+struct Entry {
+    db: Arc<Hako>,
+    last: Instant,
+}
+
 pub struct ProjectStore {
     data_dir: PathBuf,
-    instances: Mutex<HashMap<String, Arc<Hako>>>,
+    entries: Mutex<HashMap<String, Entry>>,
+    /// maksimal instance aktif; 0 = tidak ada eviksi
+    capacity: usize,
+    /// project harus idle minimal ini sebelum bisa di-eviksi; 0 = langsung
+    idle_ttl: Duration,
 }
 
 impl ProjectStore {
     pub fn new(data_dir: PathBuf) -> Self {
-        Self { data_dir, instances: Mutex::new(HashMap::new()) }
+        let capacity = std::env::var("MEMORYBOX_MAX_PROJECTS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(8);
+        let idle_ttl = std::env::var("MEMORYBOX_PROJECT_IDLE_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .map(Duration::from_secs)
+            .unwrap_or_else(|| Duration::from_secs(1800));
+        Self::with_limits(data_dir, capacity, idle_ttl)
+    }
+
+    pub fn with_limits(data_dir: PathBuf, capacity: usize, idle_ttl: Duration) -> Self {
+        Self {
+            data_dir,
+            entries: Mutex::new(HashMap::new()),
+            capacity,
+            idle_ttl,
+        }
+    }
+
+    /// Jumlah project yang saat ini terbuka di memory.
+    pub fn active_count(&self) -> usize {
+        self.entries.lock().unwrap().len()
+    }
+
+    pub fn active_pids(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.entries.lock().unwrap().keys().cloned().collect();
+        out.sort();
+        out
+    }
+
+    fn open_db(&self, dir: &PathBuf) -> Result<Arc<Hako>> {
+        // v0.21.0: lock advisory pada hako.lock — mencegah dua instance
+        // (proses/instance berbeda) membuka data dir yang sama.
+        Ok(Arc::new(Hako::open_exclusive(
+            dir,
+            hakodb::config::HakoConfig::default(),
+        )?))
+    }
+
+    /// Eviksi entry paling lama dipakai yang sudah idle dan tidak masih
+    /// dipegang Arc oleh request/watcher lain (strong_count == 1).
+    fn sweep(&self, exclude: Option<&str>) {
+        if self.capacity == 0 {
+            return;
+        }
+        let mut map = self.entries.lock().unwrap();
+        if map.len() <= self.capacity {
+            return;
+        }
+        let mut order: Vec<(String, Instant)> = map
+            .iter()
+            .map(|(pid, e)| (pid.clone(), e.last))
+            .collect();
+        order.sort_by_key(|(_, last)| *last);
+        let mut evicted = 0usize;
+        for (pid, last) in order {
+            if map.len() <= self.capacity {
+                break;
+            }
+            if exclude == Some(pid.as_str()) {
+                continue;
+            }
+            if !self.idle_ttl.is_zero() && last.elapsed() < self.idle_ttl {
+                continue;
+            }
+            // jangan eviksi kalau masih dipakai (request/watcher dalam flight)
+            if Arc::strong_count(&map[&pid].db) != 1 {
+                continue;
+            }
+            map.remove(&pid);
+            evicted += 1;
+            tracing::info!(pid = %pid, "LRU: project di-eviksi (idle)");
+        }
+        if evicted > 0 {
+            tracing::info!(evicted, active = map.len(), "LRU sweep selesai");
+        }
     }
 
     /// Buka (atau ambil) instance project. Idempotent dalam proses.
     pub fn open_project(&self, canonical_path: &str) -> Result<(String, Arc<Hako>)> {
         let pid = project_id(canonical_path);
         {
-            let map = self.instances.lock().unwrap();
-            if let Some(h) = map.get(&pid) {
-                return Ok((pid, h.clone()));
+            let mut map = self.entries.lock().unwrap();
+            if let Some(entry) = map.get_mut(&pid) {
+                entry.last = Instant::now();
+                return Ok((pid, entry.db.clone()));
             }
         }
         let dir = self.data_dir.join("projects").join(&pid);
         std::fs::create_dir_all(&dir)?;
-        let db = Arc::new(Hako::open(&dir, hakodb::config::HakoConfig::default())?);
+        let db = self.open_db(&dir)?;
         ensure_schema(&db)?;
         persist_root(&db, canonical_path)?;
-        self.instances.lock().unwrap().insert(pid.clone(), db.clone());
+        self.entries.lock().unwrap().insert(
+            pid.clone(),
+            Entry {
+                db: db.clone(),
+                last: Instant::now(),
+            },
+        );
+        self.sweep(Some(&pid));
         Ok((pid, db))
     }
 
@@ -55,24 +150,30 @@ impl ProjectStore {
     /// (robust terhadap restart server — project_id adalah nama direktori).
     pub fn get(&self, pid: &str) -> Result<Arc<Hako>> {
         {
-            let map = self.instances.lock().unwrap();
-            if let Some(h) = map.get(pid) {
-                return Ok(h.clone());
+            let mut map = self.entries.lock().unwrap();
+            if let Some(entry) = map.get_mut(pid) {
+                entry.last = Instant::now();
+                return Ok(entry.db.clone());
             }
         }
         let dir = self.data_dir.join("projects").join(pid);
         if !dir.is_dir() {
             return Err(anyhow!("project tidak dikenal: {pid}"));
         }
-        let db = Arc::new(Hako::open(&dir, hakodb::config::HakoConfig::default())?);
+        let db = self.open_db(&dir)?;
         ensure_schema(&db)?;
         // recovery index async — tunggu sebelum dipakai untuk query
         let _ = db.await_quiescent(std::time::Duration::from_secs(600));
-        self.instances.lock().unwrap().insert(pid.to_string(), db.clone());
+        self.entries.lock().unwrap().insert(
+            pid.to_string(),
+            Entry {
+                db: db.clone(),
+                last: Instant::now(),
+            },
+        );
+        self.sweep(Some(pid));
         Ok(db)
     }
-
-
 }
 
 /// Simpan root project ke koleksi `meta` (id "root") — dasar rel scan.

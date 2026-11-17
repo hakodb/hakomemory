@@ -86,8 +86,41 @@ export default {
     const retrieve = async (query, k) =>
       post(`${server}/v1/retrieve`, { project_id: projectID, query, k })
 
-    const remember = async (kind, text) =>
-      post(`${server}/v1/memory/write`, { project_id: projectID, kind, text }, 8000)
+    const remember = async (kind, text, metadata) =>
+      post(
+        `${server}/v1/memory/write`,
+        { project_id: projectID, kind, text, metadata },
+        8000,
+      )
+
+    /** Distilasi transkrip → pelajaran prosedural (self-learning skill). */
+    const distill = async (tail) => {
+      try {
+        // runtime 2.0.24: ctx.experimental hanya punya terminal;
+        // generate.text tersedia sebagai ctx.generate.text (alias top-level).
+        const gen = ctx.experimental?.generate?.text ?? ctx.generate?.text
+        if (!gen) return { saved: false, error: "generate.text tidak tersedia di runtime" }
+        const g = await gen({
+          prompt:
+            "Kamu mengekstrak 'pelajaran' dari sesi coding untuk memory jangka panjang.\n" +
+            "Dari transkrip berikut, tulis HANYA keputusan/pola/langkah yang bisa dipakai ulang di masa depan.\n" +
+            "Format: bullet singkat (maksimal 6 baris), tanpa basa-basi. " +
+            "Jika tidak ada yang berharga, tulis persis: NONE\n\n" +
+            "Transkrip:\n" + tail.slice(0, 6000),
+        })
+        const text = (g?.text ?? "").trim()
+        if (!text || text === "NONE" || text.toUpperCase().includes("NONE")) {
+          return { saved: false, text }
+        }
+        await remember("procedural", text.slice(0, 2000), {
+          source: "compaction-distill",
+          ts: Date.now(),
+        })
+        return { saved: true, text }
+      } catch (e) {
+        return { saved: false, error: String(e) }
+      }
+    }
 
     // ---- hook: prompt → episodic ----
     await ctx.session.hook("prompt", (event) => {
@@ -102,9 +135,19 @@ export default {
       await ctx.session.hook("context", async (event) => {
         const query = lastUserText(event.messages)
         if (!query) return
-        const res = await retrieve(query, 5)
+        // konteks codebase + pelajaran prosedural yang tersimpan
+        const [res, proc] = await Promise.all([
+          retrieve(query, 5),
+          post(`${server}/v1/memory/search`, {
+            project_id: projectID,
+            kind: "procedural",
+            query,
+            k: 2,
+          }),
+        ])
         const hits = res?.hits ?? []
-        if (!hits.length) return
+        const lessons = (proc?.hits ?? []).map((h) => h.text)
+        if (!hits.length && !lessons.length) return
         let budget = INJECT_CHAR_BUDGET
         const lines = []
         for (const h of hits) {
@@ -112,6 +155,12 @@ export default {
           if (head.length > budget) break
           budget -= head.length + 2
           lines.push(head)
+        }
+        if (lessons.length && budget > 400) {
+          lines.push(
+            "# Pelajaran tersimpan (memory-box, hasil distilasi sesi sebelumnya)\n" +
+              lessons.map((t) => "- " + t).join("\n"),
+          )
         }
         if (!lines.length) return
         event.system.push({
@@ -125,16 +174,17 @@ export default {
       })
     }
 
-    // ---- hook: compaction → semantic ----
+    // ---- hook: compaction → semantic + distilasi prosedural ----
     await ctx.session.hook("compaction", (event) => {
       try {
         const tail = (event.messages ?? [])
-          .slice(-6)
+          .slice(-8)
           .map((m) => extractText(m))
           .filter(Boolean)
           .join("\n")
-        if (tail.length > 16) {
-          void remember("semantic", tail.slice(0, 4000))
+        if (tail.length > 32) {
+          void remember("semantic", tail.slice(0, 4000), { source: "compaction" })
+          void distill(tail)
         }
       } catch {
         // gagal-aman
@@ -195,6 +245,31 @@ export default {
           const { text, kind } = input
           const res = await remember(kind ?? "semantic", text)
           return { content: res ? `tersimpan: ${JSON.stringify(res)}` : "gagal simpan" }
+        },
+      })
+
+      editor.add({
+        name: "distill",
+        description:
+          "Distil teks/keputusan/pola dari sesi menjadi pelajaran prosedural yang tersimpan otomatis di memory jangka panjang (self-learning).",
+        input: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "transkrip/keputusan/pola yang mau didistil" },
+          },
+          required: ["text"],
+          additionalProperties: false,
+        },
+        options: { namespace: "memory", codemode: true },
+        execute: async (input) => {
+          const { text } = input
+          if (!text || text.length < 32) return { content: "terlalu pendek untuk didistil" }
+          const out = await distill(text)
+          return {
+            content: out.saved
+              ? `tersimpan sebagai pelajaran:\n${out.text}`
+              : `tidak tersimpan (${out.error ?? "kosong/NONE"}): ${out.text ?? ""}`,
+          }
         },
       })
 

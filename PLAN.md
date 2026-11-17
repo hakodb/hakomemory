@@ -46,7 +46,24 @@
   (Eq filter), subgraph dirender "caller → callee (call)" dengan path:line.
 
 
-### 0.2 Kendala yang dikunci
+### 0.5 Hasil fase 4b: skill learner (teruji, kecuali panggilan LLM)
+
+- **Runtime OpenCode 2.0.24**: `ctx.experimental` hanya berisi `terminal`;
+  `generate.text` tersedia sebagai **`ctx.generate.text`** (alias top-level,
+  deprecated di tipe 2.3.0 tapi satu-satunya yang ada di runtime ini).
+  Plugin distill pakai fallback `ctx.experimental?.generate?.text ??
+  ctx.generate?.text`.
+- **Tool `memory.distill`** memvalidasi rantai: input → generate.text →
+  `remember("procedural")`. Saat diuji live: generate membalas error kuota
+  model gratis (`Generate.UnavailableError: Free usage limit reached`) —
+  blocker lingkungan, bukan kode; error tertangani & dilaporkan verbatim.
+- **Sisa rantai divalidasi via API langsung**: write `mem_procedural` +
+  hybrid search kind=procedural ✅.
+- **Loop tertutup tervalidasi**: pelajaran prosedural yang tersimpan ikut
+  terinjeksikan oleh hook `context` sebagai blok "# Pelajaran tersimpan"
+  dan dibaca model ✅.
+- Hook `compaction` menulis snapshot `semantic` (raw) + menjalankan
+  `distill(tail)` fire-and-forget → `mem_procedural` otomatis.
 
 
 

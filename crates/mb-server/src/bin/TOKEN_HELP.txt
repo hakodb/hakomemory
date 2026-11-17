@@ -8,5 +8,7 @@ Options:
   --projects IDS   comma-separated project ids the token may access
   --roots PATHS    comma-separated canonical path prefixes allowed to open
   --days N         validity in days (default 30)
+  --agents IDS     comma-separated agent ids this token may access
+  --sessions IDS   comma-separated session ids this token may access
   --admin          bootstrap/admin token (bypasses project checks)
   --help           show this text

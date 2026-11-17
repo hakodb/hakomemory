@@ -488,3 +488,16 @@ masih terbuka.
 - Distill tetap memakai model sesi OpenCode bila `MEMORYBOX_DISTILL_MODEL`
   kosong — `ctx.generate.text` dipanggil tanpa opsi `model` (plugin
   `index.ts:145`). Env override hanya untuk memilih model berbeda.
+
+
+### 0.15 P3 multi-agent scope + P4 ditutup (teruji)
+
+- Token: klaim `agents`/`sessions` (`mb-token --agents/--sessions`).
+- `memory/write` mewajibkan agent/session yang sesuai scope; `memory/search`
+  menambah filter Eq bila diminta atau In bila token dibatasi; `memory/forget`
+  memeriksa owner + agent/session. Admin bypass.
+- Test `memory_scope_agent_dan_session` (11 test auth total).
+- P4 (item engine deferred #217) **ditutup tanpa implementasi** — keputusan,
+  alasan, dan trigger ada di `docs/ENGINE_DEFERRED.md`.
+- Housekeeping: tidak ada secret nyata di repo, remote/CI sesuai instruksi
+  ditangani box lain, kunci benchmark sudah dihapus/ perlu di-rotate pemilik.

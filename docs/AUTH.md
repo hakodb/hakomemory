@@ -100,10 +100,10 @@ model below), not an optional extra.
   by the caller; no user/owner is attached to it. Two users pointing at the
   same path get the **same pid and the same memory**. Any caller can request any
   existing `pid` because there is no authorization check.
-- **Memory collections are project-scoped, not user/agent-scoped.** Docs have
-  no `user_id`, `agent_id`, or `session_id` field. The `prompt` hook writes
-  every user prompt into one shared `mem_episodic`; the `context` hook injects
-  the same lessons into every session bound to that project.
+- **Memory collections are project-scoped.** Historically docs had no
+  `user_id`/`agent_id`/`session_id` field; that is now fixed in the implemented
+  sections below (stamping + filtering). The `prompt` hook still writes user
+  prompts to `mem_episodic`, and `context` injects the same project lessons.
 - A single shared `SharedEmbedder` (behind a `Mutex`) and one watcher per `pid`
   serve all callers — safe from data races, but not an isolation boundary.
 
@@ -161,9 +161,11 @@ Auth + isolation have been implemented in phases:
    persists `project_aliases.json` (alias + pid→root map). Client cannot pick
    an arbitrary `pid`.
 4. Memory docs are stamped with `user_id` (+ optional `agent_id`/`session_id`);
-   search filters by owner and `forget` rejects another user's doc. Legacy
-   documents without `user_id` are hidden from non-admin users until stamped
-   via `POST /v1/admin/backfill` (admin only).
+   search filters by owner **and** optional agent/session (Eq or token-scoped
+   In), `write` requires an in-scope agent/session, and `forget` rejects
+   another user's or another agent's doc. Legacy documents without `user_id`
+   are hidden from non-admin users until stamped via
+   `POST /v1/admin/backfill` (admin only).
 5. Plugin and `mb-mcp` send `Authorization: Bearer` from `MEMORYBOX_TOKEN`
    (or `options.token`) and can open by `MEMORYBOX_ALIAS` / `options.alias`.
    Tokens carry a `jti` and can be revoked with `POST /v1/admin/revoke`
@@ -179,3 +181,17 @@ Since HakoDB v0.21.0, owner filtering runs **in the engine** via
 workaround and its "fewer than k hits" caveat are gone. Graph responses use
 `subgraph_json_projected`, so raw `emb` vectors never reach clients. See
 `docs/V021_ADOPTION.md` and hakodb issue #217.
+
+
+## Implemented: multi-agent scope (P3)
+
+Tokens may carry `agents` and `sessions` claims (`mb-token --agents a1,a2
+--sessions s1`):
+
+- token with `agents=[a1]` can only write with `agent_id=a1`, only sees `a1`
+  memories when `agent_id` is omitted, and gets 403 for `agent_id=a2`;
+- `sessions` behaves the same way;
+- admin tokens bypass all scope filters;
+- `user_id` ownership is always enforced for non-admin tokens.
+
+Cross-agent isolation test lives in `tests/auth.rs::memory_scope_agent_dan_session`.

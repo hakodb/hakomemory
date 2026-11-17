@@ -47,6 +47,7 @@ docs/           design log + auth assessment
 - [x] Automated integration tests for all `/v1/*` endpoints
 - [x] Multi-user auth: signed tokens, project/path scope, per-user memory,
       alias, backfill, revocation, rate limit
+- [x] Multi-agent scope: `agent_id`/`session_id` filters + scoped tokens
 - [x] Safe LRU: `open_exclusive`, Weak watcher, idle TTL + strong-count guard
 - [x] Model-agnostic embeddings: persisted `EmbeddingSpec` (384–4096d), remote
       HTTP embedder backend, hard error on dimension mismatch

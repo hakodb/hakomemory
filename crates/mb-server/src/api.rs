@@ -368,6 +368,26 @@ pub async fn memory_write(
     Json(input): Json<MemoryWrite>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    match input.agent_id.as_deref() {
+        Some(agent) => auth.require_agent(agent).map_err(auth_err)?,
+        None if auth.allowed_agents().is_some() => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "agent_id wajib untuk token berscope agent" })),
+            ))
+        }
+        None => {}
+    }
+    match input.session_id.as_deref() {
+        Some(session) => auth.require_session(session).map_err(auth_err)?,
+        None if auth.allowed_sessions().is_some() => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "session_id wajib untuk token berscope session" })),
+            ))
+        }
+        None => {}
+    }
     let col = memory_col(&input.kind).map_err(err400)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
@@ -431,6 +451,10 @@ pub struct MemorySearch {
     pub query: String,
     #[serde(default = "default_k")]
     pub k: usize,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 pub async fn memory_search(
@@ -450,10 +474,9 @@ pub async fn memory_search(
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
-    // v0.21.0: filter owner ditaruh di engine (sebelum peringkat), bukan
-    // over-fetch + buang di aplikasi. Admin tanpa filter melihat semua,
-    // termasuk dokumen legacy tanpa user_id.
-    let filters: Vec<Filter> = if auth.admin {
+    // v0.21.0: filter owner + scope agent/session ditaruh di engine
+    // (sebelum peringkat). Admin tanpa filter melihat semua.
+    let mut filters: Vec<Filter> = if auth.admin {
         Vec::new()
     } else {
         vec![Filter {
@@ -462,6 +485,34 @@ pub async fn memory_search(
             value: Value::String(auth.sub.clone()),
         }]
     };
+    if let Some(agent) = input.agent_id.as_deref() {
+        auth.require_agent(agent).map_err(auth_err)?;
+        filters.push(Filter {
+            field: "agent_id".into(),
+            op: Operator::Eq,
+            value: Value::String(agent.to_string()),
+        });
+    } else if let Some(allowed) = auth.allowed_agents() {
+        filters.push(Filter {
+            field: "agent_id".into(),
+            op: Operator::In,
+            value: Value::Array(allowed.into_iter().map(Value::String).collect()),
+        });
+    }
+    if let Some(session) = input.session_id.as_deref() {
+        auth.require_session(session).map_err(auth_err)?;
+        filters.push(Filter {
+            field: "session_id".into(),
+            op: Operator::Eq,
+            value: Value::String(session.to_string()),
+        });
+    } else if let Some(allowed) = auth.allowed_sessions() {
+        filters.push(Filter {
+            field: "session_id".into(),
+            op: Operator::In,
+            value: Value::Array(allowed.into_iter().map(Value::String).collect()),
+        });
+    }
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
         let qv = embedder.embed_one(&query)?;
@@ -500,6 +551,10 @@ pub struct MemoryForget {
     pub project_id: String,
     pub kind: String,
     pub id: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 pub async fn memory_forget(
@@ -508,15 +563,41 @@ pub async fn memory_forget(
     Json(input): Json<MemoryForget>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    if let Some(agent) = input.agent_id.as_deref() {
+        auth.require_agent(agent).map_err(auth_err)?;
+    }
+    if let Some(session) = input.session_id.as_deref() {
+        auth.require_session(session).map_err(auth_err)?;
+    }
     let col = memory_col(&input.kind).map_err(err400)?;
     let store = state.store.clone();
     let (pid, id) = (input.project_id.clone(), input.id.clone());
     let sub = auth.sub.clone();
     let is_admin = auth.admin;
+    let req_agent = input.agent_id.clone();
+    let req_session = input.session_id.clone();
+    let allowed_agents = auth.allowed_agents();
+    let allowed_sessions = auth.allowed_sessions();
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
         if let Some(doc) = db.get(&col, &id)? {
-            if !is_admin && !matches!(doc.get("user_id"), Some(Value::String(u)) if u == &sub) {
+            let field_eq = |doc: &HakoDoc, field: &str, expected: &str| {
+                matches!(doc.get(field), Some(Value::String(v)) if v == expected)
+            };
+            let field_in = |doc: &HakoDoc, field: &str, list: &[String]| {
+                matches!(doc.get(field), Some(Value::String(v)) if list.contains(v))
+            };
+            let allowed = is_admin
+                || (field_eq(&doc, "user_id", &sub)
+                    && req_agent.as_deref().map_or(true, |a| field_eq(&doc, "agent_id", a))
+                    && allowed_agents
+                        .as_ref()
+                        .map_or(true, |list| field_in(&doc, "agent_id", list))
+                    && req_session.as_deref().map_or(true, |s| field_eq(&doc, "session_id", s))
+                    && allowed_sessions
+                        .as_ref()
+                        .map_or(true, |list| field_in(&doc, "session_id", list)));
+            if !allowed {
                 return Ok::<_, anyhow::Error>(serde_json::json!({ "forbidden": true }));
             }
         }

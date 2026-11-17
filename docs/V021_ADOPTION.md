@@ -111,3 +111,9 @@ Tidak ada perubahan pada plugin/MCP: token, alias, scope user, dan auth tetap ap
 
 Issue #217 menutup semua rekomendasi P0–P2 dari kajian kita, dengan dua koreksi penting: filtered-ANN sudah lama ada di executor (tinggal disambung ke RRF), dan `node_match` graph sudah scoped ke tetangga. Untuk memory-box, dampak paling besar adalah **menghapus dua workaround**: over-fetch filter owner di `memory_search` dan strip `emb` di `graph/context` — keduanya kini jadi satu panggilan engine.
 Urutan aman: **upgrade & uji (E1) → filtered search (E2) → proyeksi graph (E3) → ensure_indexes (E4) → LRU (E5, opsional)**.
+
+
+## Penutupan P4
+
+Item engine yang deferred di #217 tidak diadopsi di memory-box. Keputusan final
+dan trigger revisi ada di `docs/ENGINE_DEFERRED.md`.

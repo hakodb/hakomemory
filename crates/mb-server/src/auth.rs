@@ -39,6 +39,11 @@ pub struct Claims {
     /// id token untuk revokasi; bila kosong dipakai fingerprint SHA-256 token.
     #[serde(default)]
     pub jti: Option<String>,
+    /// agent/session yang boleh diakses token ini (kosong = tidak dibatasi)
+    #[serde(default)]
+    pub agents: Vec<String>,
+    #[serde(default)]
+    pub sessions: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +54,8 @@ pub struct AuthContext {
     pub admin: bool,
     /// kunci untuk pengecekan revokasi (jti atau fingerprint token).
     pub key: String,
+    pub agents: Vec<String>,
+    pub sessions: Vec<String>,
 }
 
 impl AuthContext {
@@ -60,6 +67,8 @@ impl AuthContext {
             projects: Vec::new(),
             admin: true,
             key: "local".into(),
+            agents: Vec::new(),
+            sessions: Vec::new(),
         }
     }
 
@@ -72,6 +81,39 @@ impl AuthContext {
     }
 
     /// Path harus berada di bawah salah satu root yang diizinkan.
+    /// Daftar agent yang diizinkan; None = tanpa pembatasan.
+    pub fn allowed_agents(&self) -> Option<Vec<String>> {
+        if self.admin || self.agents.is_empty() {
+            None
+        } else {
+            Some(self.agents.clone())
+        }
+    }
+
+    pub fn allowed_sessions(&self) -> Option<Vec<String>> {
+        if self.admin || self.sessions.is_empty() {
+            None
+        } else {
+            Some(self.sessions.clone())
+        }
+    }
+
+    pub fn require_agent(&self, agent: &str) -> Result<(), StatusCode> {
+        match self.allowed_agents() {
+            None => Ok(()),
+            Some(list) if list.iter().any(|a| a == agent) => Ok(()),
+            Some(_) => Err(StatusCode::FORBIDDEN),
+        }
+    }
+
+    pub fn require_session(&self, session: &str) -> Result<(), StatusCode> {
+        match self.allowed_sessions() {
+            None => Ok(()),
+            Some(list) if list.iter().any(|s| s == session) => Ok(()),
+            Some(_) => Err(StatusCode::FORBIDDEN),
+        }
+    }
+
     pub fn require_path(&self, path: &str) -> Result<(), StatusCode> {
         if self.admin {
             return Ok(());
@@ -151,6 +193,8 @@ impl AuthConfig {
             projects: claims.projects,
             admin: claims.admin,
             key,
+            agents: claims.agents,
+            sessions: claims.sessions,
         })
     }
 }

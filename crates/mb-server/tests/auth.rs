@@ -26,7 +26,14 @@ fn temp_root() -> PathBuf {
     p
 }
 
-fn token(sub: &str, projects: &[&str], roots: &[String], admin: bool) -> String {
+fn token_scoped(
+    sub: &str,
+    projects: &[&str],
+    roots: &[String],
+    admin: bool,
+    agents: &[&str],
+    sessions: &[&str],
+) -> String {
     let exp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -43,10 +50,16 @@ fn token(sub: &str, projects: &[&str], roots: &[String], admin: bool) -> String 
                 static N: AtomicU64 = AtomicU64::new(0);
                 N.fetch_add(1, Ordering::SeqCst)
             })),
+            agents: agents.iter().map(|s| s.to_string()).collect(),
+            sessions: sessions.iter().map(|s| s.to_string()).collect(),
         },
         SECRET,
     )
     .unwrap()
+}
+
+fn token(sub: &str, projects: &[&str], roots: &[String], admin: bool) -> String {
+    token_scoped(sub, projects, roots, admin, &[], &[])
 }
 
 async fn call(app: &Router, method: &str, path: &str, body: Value, tok: Option<&str>) -> StatusCode {
@@ -88,6 +101,24 @@ async fn call_json(
     let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
     (status, value)
+}
+
+async fn write_mem(
+    app: &Router,
+    pid: &str,
+    tok: &str,
+    agent: &str,
+    text: &str,
+) -> (StatusCode, Value) {
+    call_json(
+        app,
+        "POST",
+        "/v1/memory/write",
+        json!({ "project_id": pid, "kind": "semantic", "text": text,
+                "agent_id": agent, "session_id": "s1" }),
+        Some(tok),
+    )
+    .await
 }
 
 fn app_with_auth(dir: &PathBuf) -> Router {
@@ -509,6 +540,80 @@ async fn filtered_search_menjamin_full_k() {
         hits.iter().all(|h| h["text"].as_str().unwrap().starts_with("alice")),
         "tidak boleh ada dokumen bob: {out}"
     );
+}
+
+#[tokio::test]
+async fn memory_scope_agent_dan_session() {
+    let dir = temp_root();
+    let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
+    let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
+    let app = app_with_auth(&dir);
+    let alice = token_scoped("alice", &[&pid], &[canonical.clone()], false, &["agent-a"], &[]);
+    let bob = token_scoped("bob", &[&pid], &[canonical.clone()], false, &["agent-b"], &[]);
+    let admin = token("admin", &[], &[], true);
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/projects/open",
+            json!({ "path": canonical }), Some(&alice)
+        ).await,
+        StatusCode::OK
+    );
+
+    let (sa, wa) = write_mem(&app, &pid, &alice, "agent-a", "memori milik agent a").await;
+    assert_eq!(sa, StatusCode::OK, "{wa}");
+    let id_a = wa["id"].as_str().unwrap().to_string();
+    let (sb, wb) = write_mem(&app, &pid, &bob, "agent-b", "memori milik agent b").await;
+    assert_eq!(sb, StatusCode::OK, "{wb}");
+    let id_b = wb["id"].as_str().unwrap().to_string();
+
+    // token scoped hanya melihat agent-nya sendiri bila agent_id tidak diset
+    let (_, seen) = call_json(
+        &app, "POST", "/v1/memory/search",
+        json!({ "project_id": pid, "query": "memori milik agent", "k": 10 }),
+        Some(&alice),
+    ).await;
+    let texts: Vec<&str> = seen["hits"].as_array().unwrap().iter()
+        .map(|h| h["text"].as_str().unwrap()).collect();
+    assert!(texts.contains(&"memori milik agent a"), "{seen}");
+    assert!(!texts.contains(&"memori milik agent b"), "{seen}");
+
+    // meminta agent lain ditolak
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/memory/search",
+            json!({ "project_id": pid, "query": "x", "agent_id": "agent-b" }),
+            Some(&alice),
+        ).await,
+        StatusCode::FORBIDDEN
+    );
+
+    // menulis sebagai agent lain ditolak
+    let (s_ilegal, _) = write_mem(&app, &pid, &alice, "agent-b", "tulis ilegal").await;
+    assert_eq!(s_ilegal, StatusCode::FORBIDDEN);
+
+    // forget lintas agent ditolak; forget milik sendiri sukses; admin melihat semua
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/memory/forget",
+            json!({ "project_id": pid, "kind": "semantic", "id": id_b }),
+            Some(&alice),
+        ).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/memory/forget",
+            json!({ "project_id": pid, "kind": "semantic", "id": id_a, "agent_id": "agent-a" }),
+            Some(&alice),
+        ).await,
+        StatusCode::OK
+    );
+    let (_, all) = call_json(
+        &app, "POST", "/v1/memory/search",
+        json!({ "project_id": pid, "query": "memori milik agent", "k": 10 }),
+        Some(&admin),
+    ).await;
+    assert!(all["hits"].as_array().unwrap().iter().any(|h| h["text"] == "memori milik agent b"));
 }
 
 fn hex12(d: &[u8]) -> String {

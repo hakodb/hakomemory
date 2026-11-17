@@ -403,3 +403,31 @@ Auth: bind `127.0.0.1` default; bearer token opsional untuk LAN.
 | Model ~470 MB | candle + cache HF standar; salin cache ke box lain untuk instalasi offline |
 | Banyak instance Hako terbuka | Belum ada eviksi — instance ditutup saat proses mati. LRU direncanakan; pantau jumlah project aktif. |
 | Node tidak terpasang (plugin dev) | OpenCode memuat TS sendiri; untuk test pakai runtime OpenCode |
+
+
+### 0.10 Adopsi HakoDB v0.21.0 (issue #217, teruji)
+
+Upgrade dari v0.20.8 → v0.21.0 setelah wave rekomendasi kajian
+`~/hakodb_issue_new.md` ditutup di issue #217 (PR #218–#222). Koreksi penting
+dari maintainer: filtered-ANN sudah ada di executor sejak #192 (kajian salah
+mengira tidak dipakai), dan `node_match` graph sudah scoped ke tetangga (#156);
+yang benar-benar kurang hanya jalur RRF dan convenience API.
+
+Yang dipakai memory-box sekarang:
+- `memory_search` → `hybrid_search_filtered(..., &[user_id])` — filter sebelum
+  peringkat, **full-k** dijamin; test `filtered_search_menjamin_full_k`.
+- `graph/context` → `subgraph_json_projected(..., Some(fields))` — `emb` tidak
+  pernah dikirim; field edge-doc (`callee`/`to_path`/`_from`/`_to`) tetap ada.
+- `ensure_schema` → `IndexSchema` + `ensure_indexes` (idempotent), plus
+  `create_edge_index("edges")` untuk index `_from`/`_to` (tidak termasuk
+  `IndexSchema.tracked`). Reopen data lama tervalidasi (tidak ada wipe/backfill).
+- `hybrid_search()` lama tetap byte-identik (delegasi ke `filtered(..., &[])`).
+
+Tidak diadopsi (sengaja deferred di #217): `update_where`/`query_stream`,
+`stats()`, edge-doc normalization, rich `FilterExpr`, FFI mirror. LRU masih
+menunggu refactor watcher → `pid` + `Weak<Hako>`; `open_exclusive` sudah
+tersedia tetapi belum diaktifkan. Detail: `docs/V021_ADOPTION.md`.
+
+Verifikasi: 21 test `cargo test --workspace` lolos; POC wave-1 SEMUA LOLOS
+(persist-HNSW reopen 10 ms); smoke live retrieve/graph/MCP sukses dengan data
+existing.

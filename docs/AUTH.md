@@ -174,8 +174,8 @@ Auth + isolation have been implemented in phases:
 Tests: 9 auth integration tests + 5 endpoint tests + 4 MCP unit tests +
 2 parser tests — all pass via `cargo test --workspace`.
 
-Known limitation: `hybrid_search` v0.20.8 has no server-side field filter, so
-owner filtering is applied to an enlarged candidate set (k×5). This is correct
-but may return fewer than `k` hits for users with sparse memory. The engine-side
-fix (`hybrid_search_filtered` using the existing `HnswIndex::search_filtered`)
-and other GraphRAG recommendations are documented in `/home/riza/hakodb_issue_new.md`.
+Since HakoDB v0.21.0, owner filtering runs **in the engine** via
+`hybrid_search_filtered(..., &[Filter { user_id }])`; the old k×5 over-fetch
+workaround and its "fewer than k hits" caveat are gone. Graph responses use
+`subgraph_json_projected`, so raw `emb` vectors never reach clients. See
+`docs/V021_ADOPTION.md` and hakodb issue #217.

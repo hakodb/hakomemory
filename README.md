@@ -1,13 +1,14 @@
 # memory-box
 
 A centralized RAG server for OpenCode: prolonged memory, live context,
-codebase memory, and self-learning skills — built on HakoDB v0.20.8
+codebase memory, and self-learning skills — built on HakoDB v0.21.0
 (vector HNSW + graph, hybrid RRF, GraphRAG primitives) with a local
 multilingual MiniLM embedding (384d, `paraphrase-multilingual-MiniLM-L12-v2`,
 pure Rust via candle). No cloud embedding API, no Node/npm at runtime.
 
 See [docs/PLAN.md](docs/PLAN.md) for design decisions, architecture, and the
-work log. Deployment instructions are in [DEPLOY.md](DEPLOY.md).
+work log. HakoDB v0.21.0 adoption (issue #217) is tracked in
+[docs/V021_ADOPTION.md](docs/V021_ADOPTION.md). Deployment instructions are in [DEPLOY.md](DEPLOY.md).
 
 ## Layout
 
@@ -29,7 +30,7 @@ docs/           design log + auth assessment
 ## Status
 
 - [x] Repo init, MIT license, design log
-- [x] POC: HakoDB v0.20.8 (`hybrid_search`, `subgraph_json`, `graph_pagerank`)
+- [x] POC: HakoDB v0.21.0 (`hybrid_search_filtered`, `subgraph_json_projected`, `graph_pagerank`)
 - [x] Local MiniLM embedder (candle, mean pooling + L2 normalization)
 - [x] Core axum server: multi-project store, `/v1/*`, memory CRUD
 - [x] Lazy project open (restart-safe), request logging

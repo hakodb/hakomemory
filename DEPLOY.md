@@ -194,4 +194,9 @@ curl -X POST http://127.0.0.1:7412/v1/admin/backfill -H 'content-type: applicati
   -d '{"project_id":"<pid>","user_id":"alice"}'
 ```
 
-Optional: `MEMORYBOX_RATE_PER_MIN=300` limits each user to 300 requests/minute.
+Optional:
+- `MEMORYBOX_RATE_PER_MIN=300` limits each user to 300 requests/minute.
+- `MEMORYBOX_MAX_PROJECTS=8` (default) caps open Hako instances; idle projects
+  are evicted after `MEMORYBOX_PROJECT_IDLE_SECS` (default 1800). Set
+  `MEMORYBOX_MAX_PROJECTS=0` for the old no-eviction behavior. Eviction is
+  safe: file lock via `open_exclusive` and in-flight requests are never evicted.

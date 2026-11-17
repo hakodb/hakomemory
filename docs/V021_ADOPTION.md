@@ -83,11 +83,17 @@ Tidak ada perubahan pada plugin/MCP: token, alias, scope user, dan auth tetap ap
 - Ganti `ensure_schema` (create per index) dengan satu `db.ensure_indexes(&schema)`.
 - Hati-hati: `create_vector_index` dengan def berbeda sekarang **error keras** — ini bagus, tapi pastikan schema memory-box identik dengan yang lama (DIM=384, metric cosine/dot sesuai `store.rs`) supaya reopen data lama tidak gagal. Uji reopen data existing wajib.
 
-### E5 — LRU aman (opsional, setelah E1–E4 stabil)
-- Engine tidak lagi penghalang (`open_exclusive`), tapi lakukan prasyarat aplikasi: watcher simpan `pid`, ambil `store.get()` tiap flush / pakai `Weak<Hako>`.
-- Baru tambah capacity + idle TTL + `Arc::strong_count == 1` guard.
-- Test evict→reopen dan watcher re-acquire.
-- Butuh `stats()` untuk choosing threshold — masih deferred di engine; untuk sekarang pakai jumlah project aktif dari registry.
+### E5 — LRU aman — SUDAH DIEKSEKUSI (commit `9f6ebcf`)
+- `ProjectStore`: `Entry{db,last}`, `open_exclusive` (lock `hako.lock`),
+  capacity `MEMORYBOX_MAX_PROJECTS` (default 8; 0 = nonaktif) + idle TTL
+  `MEMORYBOX_PROJECT_IDLE_SECS` (default 1800 dtk).
+- `sweep()` hanya men-eviksi entry yang idle DAN `Arc::strong_count == 1`
+  (tidak ada request/watcher in-flight).
+- Watcher menyimpan `Weak<Hako>`; saat flush di-upgrade, bila sudah ter-eviksi
+  dibuka ulang via `store.get(pid)`. Watcher tidak lagi mengunci project.
+- Test: `tests/lru.rs` (eviksi+reopen tanpa data loss, strong-count guard) dan
+  uji live capacity=1: project A ter-eviksi saat B dibuka, lalu edit file di A
+  → watcher membuka ulang A dan indeks simbol baru tetap masuk.
 
 ### Tidak dilakukan sekarang
 - `update_where`/`query_stream`, `stats()`, edge-doc normalization, rich `FilterExpr`, FFI mirror: sesuai alasan deferred issue #217. Backfill dan deref edge-doc sudah berjalan; tidak ada tekanan nyata.

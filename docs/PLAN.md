@@ -424,9 +424,10 @@ Yang dipakai memory-box sekarang:
 - `hybrid_search()` lama tetap byte-identik (delegasi ke `filtered(..., &[])`).
 
 Tidak diadopsi (sengaja deferred di #217): `update_where`/`query_stream`,
-`stats()`, edge-doc normalization, rich `FilterExpr`, FFI mirror. LRU masih
-menunggu refactor watcher → `pid` + `Weak<Hako>`; `open_exclusive` sudah
-tersedia tetapi belum diaktifkan. Detail: `docs/V021_ADOPTION.md`.
+`stats()`, edge-doc normalization, rich `FilterExpr`, FFI mirror. LRU sudah
+diaktifkan dengan aman: `open_exclusive` + watcher `Weak<Hako>` + eviksi hanya
+bila idle dan `Arc::strong_count == 1` (commit `9f6ebcf`). Detail:
+`docs/V021_ADOPTION.md`.
 
 Verifikasi: 21 test `cargo test --workspace` lolos; POC wave-1 SEMUA LOLOS
 (persist-HNSW reopen 10 ms); smoke live retrieve/graph/MCP sukses dengan data

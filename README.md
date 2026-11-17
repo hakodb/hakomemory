@@ -18,8 +18,12 @@ crates/
   mb-server/    axum server + mb-mcp stdio MCP adapter
 plugins/
   memory-box/   OpenCode V2 plugin (TypeScript, no npm needed)
+.opencode/
+  skills/memory-box/  skill that teaches agents when/how to use the tools
+  agents/memory-box.md read-only codebase-analysis subagent
+AGENTS.md       repository instructions for any coding agent
 scripts/        token evaluation + distill end-to-end test
-docs/           design log
+docs/           design log + auth assessment
 ```
 
 ## Status
@@ -39,6 +43,7 @@ docs/           design log
 - [x] Thin MCP adapter (`mb-mcp`, stdio JSON-RPC)
 - [x] Token-saving evaluation vs grep/read ([scripts/eval-token.py](scripts/eval-token.py))
 - [x] Automated integration tests for all `/v1/*` endpoints
+- [x] Agent guidance: skill, read-only subagent, `AGENTS.md`
 - [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
 ## Quickstart

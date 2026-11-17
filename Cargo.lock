@@ -1110,8 +1110,8 @@ dependencies = [
 
 [[package]]
 name = "hakodb"
-version = "0.20.8"
-source = "git+https://github.com/hakodb/hakodb?tag=v0.20.8#9e1de90000fa3d3a057f001c28882aae39ca9e0b"
+version = "0.21.0"
+source = "git+https://github.com/hakodb/hakodb?tag=v0.21.0#445495d7d7decb7f73452ffda11ce167f11c473f"
 dependencies = [
  "bincode",
  "chacha20poly1305",

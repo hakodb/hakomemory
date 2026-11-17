@@ -200,3 +200,22 @@ Optional:
   are evicted after `MEMORYBOX_PROJECT_IDLE_SECS` (default 1800). Set
   `MEMORYBOX_MAX_PROJECTS=0` for the old no-eviction behavior. Eviction is
   safe: file lock via `open_exclusive` and in-flight requests are never evicted.
+
+## Model-agnostic embeddings (Fase A)
+
+Dimensi embedding tidak lagi hard-coded. Project menyimpan `EmbeddingSpec`
+(model_id, dim, metric, provider) di `meta/embedding`; `ensure_indexes`
+memakai dimensi tersebut. HakoDB mendukung 1..=4096 dimensi.
+
+- Default: candle lokal, 384d.
+- Remote embedder (box lain / adapter vendor):
+  ```
+  MEMORYBOX_EMBED_URL=http://10.10.8.4:7416
+  MEMORYBOX_EMBED_DIM=768
+  MEMORYBOX_EMBED_TOKEN=<token>
+  MEMORYBOX_EMBED_MODEL=cohere/multilingual-light-v3
+  ```
+  Protokol: `GET /dim -> {"dim":N}`, `POST /embed {"texts":[...]} ->
+  {"dim":N,"vectors":[[f32,...],...]}`.
+- Membuka project lama dengan dimensi berbeda **ditolak** dengan pesan migrasi;
+  jangan menimpa index `emb` — siapkan field/index baru lalu re-embed.

@@ -47,6 +47,8 @@ docs/           design log + auth assessment
 - [x] Multi-user auth: signed tokens, project/path scope, per-user memory,
       alias, backfill, revocation, rate limit
 - [x] Safe LRU: `open_exclusive`, Weak watcher, idle TTL + strong-count guard
+- [x] Model-agnostic embeddings: persisted `EmbeddingSpec` (384–4096d), remote
+      HTTP embedder backend, hard error on dimension mismatch
 - [x] Agent guidance: skill, read-only subagent, `AGENTS.md`
 - [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
@@ -89,6 +91,10 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_TOKEN` | unset | token used by plugin / MCP clients |
 | `MEMORYBOX_ALIAS` | unset | project alias sent by plugin / MCP |
 | `MEMORYBOX_RATE_PER_MIN` | `0` | per-user request limit (0 = disabled) |
+| `MEMORYBOX_EMBED_URL` | unset | HTTP embedder base URL (unset = local candle) |
+| `MEMORYBOX_EMBED_DIM` | required if URL | vector dimension of the HTTP embedder |
+| `MEMORYBOX_EMBED_TOKEN` | unset | bearer token for the HTTP embedder |
+| `MEMORYBOX_EMBED_MODEL` | `http-embedder` | model id recorded in project spec |
 | `MEMORYBOX_MAX_PROJECTS` | `8` | max open Hako instances (0 = no eviction) |
 | `MEMORYBOX_PROJECT_IDLE_SECS` | `1800` | min idle before LRU eviction |
 | `MEMORYBOX_URL` | `http://127.0.0.1:7412` | server URL (plugin / MCP) |

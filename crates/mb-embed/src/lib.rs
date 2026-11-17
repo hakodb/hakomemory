@@ -3,7 +3,12 @@
 //! Model default: paraphrase-multilingual-MiniLM-L12-v2 (384 dim,
 //! mean pooling + L2 normalization) — bilingual ID/EN. Bisa diganti lewat
 //! MEMORYBOX_MODEL=multi|en|<repo-id>. Model diunduh sekali via hf-hub
-//! (cache lokal), lalu inferensi offline.
+//! (cache lokal), lalu inferensi offline. Backend HTTP juga tersedia untuk
+//! embedder self-hosted / adapter vendor.
+
+pub mod http;
+
+pub use http::HttpEmbedder;
 
 use anyhow::{anyhow, Context, Result};
 use candle_core::{DType, Device, Tensor};

@@ -3,9 +3,9 @@
 
 use crate::auth::{AuthContext, AuthConfig};
 use crate::embed::SharedEmbedder;
-use crate::store::ProjectStore;
+use crate::store::{EmbeddingSpec, ProjectStore};
 use crate::watcher;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -102,34 +102,40 @@ pub struct AppState {
 
 impl AppState {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>> {
-        // 1. pemilik pool rayon: open pertama HakoDB di sini.
-        let store = Arc::new(ProjectStore::new(data_dir.to_path_buf()));
-
-        // 2. baru embedder (candle + tokenizers mungkin init rayon sendiri).
-        // cache model: ikuti MEMORYBOX_MODEL_CACHE, default cache HF standar
-        // (~/.cache/huggingface) agar model dipakai bersama antar proses
+        // Catatan: ProjectStore::new BELUM membuka HakoDB (lazy per project),
+        // jadi urutan aman: embedder dulu untuk mengetahui dimensi aktif, baru
+        // store dibuat dengan EmbeddingSpec tersebut. Hako::open terjadi saat
+        // projects/open/get dipanggil (setelah pool rayon terinisialisasi).
         let cache = std::env::var("MEMORYBOX_MODEL_CACHE")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 dirs_or_default("huggingface").unwrap_or_else(|| data_dir.join("model-cache"))
             });
         let embedder = Arc::new(SharedEmbedder::load(&cache)?);
-        // Gagal cepat di startup, bukan panic di tengah indexing: dimensi
-        // model harus 384 karena skema index & data yang sudah ada.
-        if embedder.dim() != crate::store::DIM {
-            bail!(
-                "dimensi model {} != {} — memory-box terikat 384d; \
-                 gunakan model 384d atau wipe data sebelum ganti model",
-                embedder.dim(),
-                crate::store::DIM
-            );
-        }
+        let spec = EmbeddingSpec::from_env(embedder.dim());
+        let store = Arc::new(ProjectStore::new(data_dir.to_path_buf(), spec));
         Ok(Self::with_embedder(
             data_dir,
             store,
             embedder,
             Arc::new(AuthConfig::from_env()),
             rate_limit_from_env(),
+        ))
+    }
+
+    /// Konstruktor test dengan dimensi arbitrary (bukan hard-coded 384).
+    pub fn open_mock_with_dim(data_dir: &Path, dim: u32) -> Result<Arc<Self>> {
+        let embedder = Arc::new(SharedEmbedder::mock(dim));
+        let store = Arc::new(ProjectStore::new(
+            data_dir.to_path_buf(),
+            EmbeddingSpec::local(dim),
+        ));
+        Ok(Self::with_embedder(
+            data_dir,
+            store,
+            embedder,
+            Arc::new(AuthConfig::Disabled),
+            RateLimiter::new(0),
         ))
     }
 
@@ -147,8 +153,11 @@ impl AppState {
         auth: AuthConfig,
         rate_per_min: u32,
     ) -> Result<Arc<Self>> {
-        let store = Arc::new(ProjectStore::new(data_dir.to_path_buf()));
-        let embedder = Arc::new(SharedEmbedder::mock(crate::store::DIM));
+        let embedder = Arc::new(SharedEmbedder::mock(crate::store::DEFAULT_DIM));
+        let store = Arc::new(ProjectStore::new(
+            data_dir.to_path_buf(),
+            EmbeddingSpec::local(crate::store::DEFAULT_DIM),
+        ));
         Ok(Self::with_embedder(
             data_dir,
             store,

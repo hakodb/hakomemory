@@ -66,7 +66,9 @@ Env yang diusulkan: `MEMORYBOX_EMBED_URL`, `MEMORYBOX_EMBED_TOKEN`, `MEMORYBOX_E
 
 ## 6. Rencana implementasi bila disetujui
 
-- Fase A: `HttpEmbedder` + `MEMORYBOX_EMBED_*` (backend-agnostik, tanpa vendor code di server).
+- Fase A — SUDAH DIEKSEKUSI: `EmbeddingSpec` tersimpan di `meta/embedding`,
+  `HttpEmbedder` generik, env `MEMORYBOX_EMBED_*`, validasi mismatch keras.
+  Teruji: project 768d end-to-end + remote embedder HTTP 768d end-to-end.
 - Fase B: adapter Gemini/NIM terpisah + benchmark `hit@5`, latency, biaya.
 - Fase C: migrasi field/index versi baru + backfill, rollback ke 384d kapan saja.
 - Fase D: ganti default hanya bila eval menang signifikan.

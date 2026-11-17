@@ -432,3 +432,17 @@ bila idle dan `Arc::strong_count == 1` (commit `9f6ebcf`). Detail:
 Verifikasi: 21 test `cargo test --workspace` lolos; POC wave-1 SEMUA LOLOS
 (persist-HNSW reopen 10 ms); smoke live retrieve/graph/MCP sukses dengan data
 existing.
+
+
+### 0.11 Fase A model-agnostik embedding (teruji)
+
+- `EmbeddingSpec { model_id, dim, metric, provider }` dipersisten di
+  `meta/embedding` per project; `DIM` konstanta dihapus dari server/indexer.
+- `ensure_schema(db, spec)` memakai `spec.dim` + `spec.metric`; HakoDB v0.21
+  mendukung 1..=4096 (source: `MAX_DIM` di `src/index/vector.rs:82`).
+- `SharedEmbedder::load()` memilih candle lokal atau `HttpEmbedder` generik
+  lewat `MEMORYBOX_EMBED_URL`/`_DIM`/`_TOKEN`/`_MODEL`.
+- Membuka project dengan spec berbeda → error keras berisi saran migrasi
+  (field/index baru + re-embed), bukan silent corruption.
+- Test: `tests/embed_spec.rs` (persist/mismatch + project 768d end-to-end) dan
+  uji live remote embedder HTTP 768d (write + search sukses). Total 27 test.

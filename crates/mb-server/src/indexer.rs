@@ -18,7 +18,6 @@
 
 use crate::embed::SharedEmbedder;
 use crate::parser;
-use crate::store::DIM;
 use anyhow::Result;
 use hakodb::document::hako_doc::HakoDoc;
 use hakodb::document::value::Value;
@@ -356,13 +355,6 @@ pub fn scan(
             });
         }
     }
-    if embedder.dim() != DIM {
-        anyhow::bail!(
-            "dimensi embedder {} != DIM {DIM} — skema index tidak cocok",
-            embedder.dim()
-        );
-    }
-
     // ---- pass 2: tree-sitter symbols ----
     let mut parsed: Vec<Option<parser::ParsedFile>> = Vec::with_capacity(file_data.len());
     let mut sym_ids: Vec<Vec<String>> = Vec::with_capacity(file_data.len());

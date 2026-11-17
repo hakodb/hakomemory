@@ -2,8 +2,8 @@
 //! BertModel::forward &mut self (dropout span dsb.). Bisa memakai backend
 //! candle asli atau mock deterministik untuk integration test.
 
-use anyhow::Result;
-use mb_embed::{Embedder, MockEmbedder, TextEmbedder};
+use anyhow::{anyhow, Result};
+use mb_embed::{Embedder, HttpEmbedder, MockEmbedder, TextEmbedder};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -13,6 +13,18 @@ pub struct SharedEmbedder {
 
 impl SharedEmbedder {
     pub fn load(cache_dir: &Path) -> Result<Self> {
+        // Mode HTTP: embedder tidak terikat proses (bisa di box lain / adapter).
+        if let Ok(url) = std::env::var("MEMORYBOX_EMBED_URL") {
+            if !url.trim().is_empty() {
+                let dim: u32 = std::env::var("MEMORYBOX_EMBED_DIM")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .ok_or_else(|| anyhow!("MEMORYBOX_EMBED_DIM wajib saat MEMORYBOX_EMBED_URL diset"))?;
+                let token = std::env::var("MEMORYBOX_EMBED_TOKEN").ok().filter(|t| !t.is_empty());
+                let inner = HttpEmbedder::new(&url, token, dim);
+                return Ok(Self { inner: Mutex::new(Box::new(inner)) });
+            }
+        }
         let inner = Embedder::load(&mb_embed::model_from_env(), Some(cache_dir))?;
         Ok(Self { inner: Mutex::new(Box::new(inner)) })
     }

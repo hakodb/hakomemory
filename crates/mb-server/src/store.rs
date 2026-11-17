@@ -4,13 +4,60 @@ use anyhow::{anyhow, Context, Result};
 use hakodb::document::hako_doc::HakoDoc;
 use hakodb::document::value::Value;
 use hakodb::engine::{BatchMutation, Hako, IndexSchema};
+use hakodb::index::vector::Metric;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-pub const DIM: u32 = 384;
+pub const DEFAULT_DIM: u32 = 384;
+
+/// Spesifikasi embedding yang dipersisten per project. Dimensi bukan konstanta
+/// kompile — model apa pun dengan dim 384..=4096 bisa dipakai (batas HakoDB).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EmbeddingSpec {
+    pub model_id: String,
+    pub dim: u32,
+    /// "Cosine" | "L2" | "InnerProduct"
+    pub metric: String,
+    /// "local" | "http"
+    pub provider: String,
+}
+
+impl EmbeddingSpec {
+    pub fn local(dim: u32) -> Self {
+        Self {
+            model_id: mb_embed::model_from_env(),
+            dim,
+            metric: "Cosine".into(),
+            provider: "local".into(),
+        }
+    }
+
+    pub fn from_env(dim: u32) -> Self {
+        let http = std::env::var("MEMORYBOX_EMBED_URL")
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let mut spec = Self::local(dim);
+        if http {
+            spec.provider = "http".into();
+            spec.model_id = std::env::var("MEMORYBOX_EMBED_MODEL")
+                .unwrap_or_else(|_| "http-embedder".into());
+        }
+        spec
+    }
+
+    pub fn metric(&self) -> Result<Metric> {
+        match self.metric.as_str() {
+            "Cosine" => Ok(Metric::Cosine),
+            "L2" => Ok(Metric::L2),
+            "InnerProduct" => Ok(Metric::InnerProduct),
+            other => Err(anyhow!("metric embedding tidak dikenal: {other}")),
+        }
+    }
+}
 
 /// Semua koleksi yang perlu vector+FTS index (koleksi memory).
 pub const MEMORY_COLLECTIONS: [&str; 3] = ["mem_episodic", "mem_semantic", "mem_procedural"];
@@ -36,10 +83,11 @@ pub struct ProjectStore {
     capacity: usize,
     /// project harus idle minimal ini sebelum bisa di-eviksi; 0 = langsung
     idle_ttl: Duration,
+    default_spec: EmbeddingSpec,
 }
 
 impl ProjectStore {
-    pub fn new(data_dir: PathBuf) -> Self {
+    pub fn new(data_dir: PathBuf, default_spec: EmbeddingSpec) -> Self {
         let capacity = std::env::var("MEMORYBOX_MAX_PROJECTS")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -49,15 +97,26 @@ impl ProjectStore {
             .and_then(|s| s.parse().ok())
             .map(Duration::from_secs)
             .unwrap_or_else(|| Duration::from_secs(1800));
-        Self::with_limits(data_dir, capacity, idle_ttl)
+        Self::with_limits_and_spec(data_dir, capacity, idle_ttl, default_spec)
     }
 
+    /// Konstruktor test: spec lokal 384d default.
     pub fn with_limits(data_dir: PathBuf, capacity: usize, idle_ttl: Duration) -> Self {
+        Self::with_limits_and_spec(data_dir, capacity, idle_ttl, EmbeddingSpec::local(DEFAULT_DIM))
+    }
+
+    pub fn with_limits_and_spec(
+        data_dir: PathBuf,
+        capacity: usize,
+        idle_ttl: Duration,
+        default_spec: EmbeddingSpec,
+    ) -> Self {
         Self {
             data_dir,
             entries: Mutex::new(HashMap::new()),
             capacity,
             idle_ttl,
+            default_spec,
         }
     }
 
@@ -120,6 +179,22 @@ impl ProjectStore {
         }
     }
 
+    /// Validasi spec terhadap data lama; simpan bila project baru.
+    fn apply_spec(&self, db: &Hako) -> Result<()> {
+        if let Some(existing) = read_embed_spec(db)? {
+            if existing.dim != self.default_spec.dim || existing.metric != self.default_spec.metric {
+                return Err(anyhow!(
+                    "project ini memakai embedding {}d/{} tapi server dikonfigurasi {}d/{}.                      Lakukan migrasi field/index + re-embed, atau kembalikan konfigurasi lama.",
+                    existing.dim, existing.metric, self.default_spec.dim, self.default_spec.metric
+                ));
+            }
+        }
+        let spec = self.default_spec.clone();
+        ensure_schema(db, &spec)?;
+        persist_embed_spec(db, &spec)?;
+        Ok(())
+    }
+
     /// Buka (atau ambil) instance project. Idempotent dalam proses.
     pub fn open_project(&self, canonical_path: &str) -> Result<(String, Arc<Hako>)> {
         let pid = project_id(canonical_path);
@@ -133,7 +208,7 @@ impl ProjectStore {
         let dir = self.data_dir.join("projects").join(&pid);
         std::fs::create_dir_all(&dir)?;
         let db = self.open_db(&dir)?;
-        ensure_schema(&db)?;
+        self.apply_spec(&db)?;
         persist_root(&db, canonical_path)?;
         self.entries.lock().unwrap().insert(
             pid.clone(),
@@ -161,7 +236,7 @@ impl ProjectStore {
             return Err(anyhow!("project tidak dikenal: {pid}"));
         }
         let db = self.open_db(&dir)?;
-        ensure_schema(&db)?;
+        self.apply_spec(&db)?;
         // recovery index async — tunggu sebelum dipakai untuk query
         let _ = db.await_quiescent(std::time::Duration::from_secs(600));
         self.entries.lock().unwrap().insert(
@@ -200,11 +275,57 @@ pub fn read_root(db: &Hako) -> Result<Option<String>> {
     }))
 }
 
+/// Baca spesifikasi embedding yang tersimpan; None untuk project lama.
+pub fn read_embed_spec(db: &Hako) -> Result<Option<EmbeddingSpec>> {
+    let Some(doc) = db.get("meta", "embedding")? else { return Ok(None) };
+    let field = |name: &str| -> Result<String> {
+        match doc.get(name) {
+            Some(Value::String(s)) => Ok(s.clone()),
+            _ => Err(anyhow!("meta embedding field {name} tidak valid")),
+        }
+    };
+    let dim = match doc.get("dim") {
+        Some(Value::Int(n)) if *n > 0 => *n as u32,
+        _ => return Err(anyhow!("meta embedding dim tidak valid")),
+    };
+    Ok(Some(EmbeddingSpec {
+        model_id: field("model_id")?,
+        dim,
+        metric: field("metric")?,
+        provider: field("provider")?,
+    }))
+}
+
+/// Simpan spesifikasi embedding (idempotent); konflik dimensi = error keras.
+pub fn persist_embed_spec(db: &Hako, spec: &EmbeddingSpec) -> Result<()> {
+    if let Some(existing) = read_embed_spec(db)? {
+        if existing.dim != spec.dim || existing.metric != spec.metric {
+            return Err(anyhow!(
+                "dimensi/metric embedding berubah ({}d {} -> {}d {}). \
+                 Perlu migrasi field/index baru + re-embed, bukan overwrite.",
+                existing.dim, existing.metric, spec.dim, spec.metric
+            ));
+        }
+        return Ok(());
+    }
+    let mut doc = HakoDoc::default();
+    doc.insert("model_id", Value::String(spec.model_id.clone()));
+    doc.insert("dim", Value::Int(spec.dim as i64));
+    doc.insert("metric", Value::String(spec.metric.clone()));
+    doc.insert("provider", Value::String(spec.provider.clone()));
+    db.write_batch(vec![BatchMutation::Put {
+        collection: "meta".into(),
+        doc_id: "embedding".into(),
+        doc,
+    }])?;
+    Ok(())
+}
+
 /// Buat semua index SEBELUM tulis pertama (kontrak hakodb).
 /// Idempotent: aman dipanggil setiap kali instance dibuka.
-pub fn ensure_schema(db: &Hako) -> Result<()> {
+pub fn ensure_schema(db: &Hako, spec: &EmbeddingSpec) -> Result<()> {
     // v0.21.0: deklarasi skema sekali, idempotent (def sama = no-op).
-    use hakodb::index::vector::Metric;
+    let metric = spec.metric()?;
     let schema = IndexSchema {
         fts: std::iter::once(("chunks".to_string(), "content".to_string()))
             .chain(MEMORY_COLLECTIONS.iter().map(|c| (c.to_string(), "text".to_string())))
@@ -212,11 +333,11 @@ pub fn ensure_schema(db: &Hako) -> Result<()> {
         vector: std::iter::once((
             "chunks".to_string(),
             "emb".to_string(),
-            DIM,
-            Metric::Cosine,
+            spec.dim,
+            metric,
         ))
         .chain(MEMORY_COLLECTIONS.iter().map(|c| {
-            (c.to_string(), "emb".to_string(), DIM, Metric::Cosine)
+            (c.to_string(), "emb".to_string(), spec.dim, metric)
         }))
         .collect(),
         tracked: vec!["symbols".into(), "edges".into()],

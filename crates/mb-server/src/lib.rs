@@ -55,6 +55,9 @@ pub fn router(app_state: Arc<AppState>) -> Router {
                 let revoked = state.revoked.lock().unwrap().clone();
                 match state.auth.authenticate(req.headers(), &revoked) {
                     Ok(ctx) => {
+                        if !state.rate.allow(&ctx.sub) {
+                            return axum::http::StatusCode::TOO_MANY_REQUESTS.into_response();
+                        }
                         req.extensions_mut().insert(ctx);
                         next.run(req).await
                     }

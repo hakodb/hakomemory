@@ -115,14 +115,61 @@ impl Embedder {
         Ok(Self { model, tokenizer, device, dim: config.hidden_size })
     }
 
-    /// Embed sejumlah teks: mean pooling + L2 normalize. Satu teks per
-    /// forward pass (POC); batching jadi pekerjaan fase 2.
+    /// Embed sejumlah teks dalam SATU forward pass (padding ke panjang
+    /// maksimum batch), lalu mean pooling per-baris + L2 normalize.
     pub fn embed(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        let mut out = Vec::with_capacity(texts.len());
-        for text in texts {
-            out.push(self.embed_one(text)?);
+        if texts.is_empty() {
+            return Ok(Vec::new());
         }
-        Ok(out)
+        const MAX_LEN: usize = 512;
+        let encodings = self
+            .tokenizer
+            .encode_batch(texts.to_vec(), true)
+            .map_err(|e| anyhow!("encode batch: {e}"))?;
+        let batch = texts.len();
+        let seq = encodings
+            .iter()
+            .map(|e| e.get_ids().len().min(MAX_LEN))
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        let pad_id = self
+            .tokenizer
+            .token_to_id("[PAD]")
+            .or_else(|| self.tokenizer.token_to_id("<pad>"))
+            .unwrap_or(0);
+
+        let mut ids = Vec::with_capacity(batch * seq);
+        let mut attn = Vec::with_capacity(batch * seq);
+        let mut types = Vec::with_capacity(batch * seq);
+        for enc in &encodings {
+            let n = enc.get_ids().len().min(MAX_LEN);
+            ids.extend_from_slice(&enc.get_ids()[..n]);
+            ids.resize(ids.len() + seq - n, pad_id);
+            attn.extend_from_slice(&enc.get_attention_mask()[..n]);
+            attn.resize(attn.len() + seq - n, 0);
+            types.extend_from_slice(&enc.get_type_ids()[..n]);
+            types.resize(types.len() + seq - n, 0);
+        }
+
+        let ids_t = Tensor::new(ids.as_slice(), &self.device)?.reshape((batch, seq))?;
+        let attn_t = Tensor::new(attn.as_slice(), &self.device)?.reshape((batch, seq))?;
+        let types_t = Tensor::new(types.as_slice(), &self.device)?.reshape((batch, seq))?;
+
+        let hidden = self.model.forward(&ids_t, &types_t, Some(&attn_t))?;
+        // mean pooling dengan mask: (batch, seq, hidden) -> (batch, hidden)
+        let mask_f = attn_t.to_dtype(DType::F32)?;
+        let mask3 = mask_f.unsqueeze(2)?;
+        let masked = hidden.broadcast_mul(&mask3)?;
+        let summed = masked.sum_keepdim(1)?;
+        let count = mask_f.sum_keepdim(1)?.unsqueeze(2)?;
+        let mean = summed.broadcast_div(&count)?.squeeze(1)?;
+        // L2 normalize per baris
+        let norm = mean.sqr()?.sum_keepdim(1)?.sqrt()?;
+        let normed = mean.broadcast_div(&norm)?;
+        let rows = normed.to_vec2::<f32>()?;
+        debug_assert!(rows.iter().all(|v| v.len() == self.dim));
+        Ok(rows)
     }
 
     pub fn embed_one(&mut self, text: &str) -> Result<Vec<f32>> {

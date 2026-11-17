@@ -18,6 +18,40 @@ fn dirs_or_default(sub: &str) -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".cache").join(sub).join("hub"))
 }
 
+/// Rate limiter sederana (fixed window 60 detik) per identitas user.
+pub struct RateLimiter {
+    pub limit: u32, // 0 = mati
+    hits: Mutex<HashMap<String, (u64, u32)>>,
+}
+
+impl RateLimiter {
+    pub fn new(limit: u32) -> Self {
+        Self { limit, hits: Mutex::new(HashMap::new()) }
+    }
+
+    pub fn allow(&self, sub: &str) -> bool {
+        if self.limit == 0 {
+            return true;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let window = now / 60;
+        let mut map = self.hits.lock().unwrap();
+        let entry = map.entry(sub.to_string()).or_insert((window, 0));
+        if entry.0 != window {
+            *entry = (window, 0);
+        }
+        if entry.1 >= self.limit {
+            false
+        } else {
+            entry.1 += 1;
+            true
+        }
+    }
+}
+
 /// Alias project per user + peta pid → root. Disimpan server-side supaya
 /// klien tidak bisa memilih `pid` sembarangan (Fase 3).
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -62,6 +96,7 @@ pub struct AppState {
     pub auth: Arc<AuthConfig>,
     pub aliases: Mutex<AliasRegistry>,
     pub revoked: Mutex<HashSet<String>>,
+    pub rate: RateLimiter,
     data_dir: PathBuf,
 }
 
@@ -94,6 +129,7 @@ impl AppState {
             store,
             embedder,
             Arc::new(AuthConfig::from_env()),
+            rate_limit_from_env(),
         ))
     }
 
@@ -103,9 +139,23 @@ impl AppState {
     }
 
     pub fn open_mock_with_auth(data_dir: &Path, auth: AuthConfig) -> Result<Arc<Self>> {
+        Self::open_mock_with_limits(data_dir, auth, 0)
+    }
+
+    pub fn open_mock_with_limits(
+        data_dir: &Path,
+        auth: AuthConfig,
+        rate_per_min: u32,
+    ) -> Result<Arc<Self>> {
         let store = Arc::new(ProjectStore::new(data_dir.to_path_buf()));
         let embedder = Arc::new(SharedEmbedder::mock(crate::store::DIM));
-        Ok(Self::with_embedder(data_dir, store, embedder, Arc::new(auth)))
+        Ok(Self::with_embedder(
+            data_dir,
+            store,
+            embedder,
+            Arc::new(auth),
+            RateLimiter::new(rate_per_min),
+        ))
     }
 
     fn with_embedder(
@@ -113,12 +163,14 @@ impl AppState {
         store: Arc<ProjectStore>,
         embedder: Arc<SharedEmbedder>,
         auth: Arc<AuthConfig>,
+        rate: RateLimiter,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
             embedder,
             watches: watcher::WatchRegistry::default(),
             auth,
+            rate,
             aliases: Mutex::new(AliasRegistry::load(data_dir)),
             revoked: Mutex::new(load_revoked(data_dir)),
             data_dir: data_dir.to_path_buf(),
@@ -191,4 +243,12 @@ impl AppState {
         std::fs::rename(&tmp, self.data_dir.join("revoked_tokens.json"))?;
         Ok(())
     }
+}
+
+fn rate_limit_from_env() -> RateLimiter {
+    let limit = std::env::var("MEMORYBOX_RATE_PER_MIN")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    RateLimiter::new(limit)
 }

@@ -426,6 +426,43 @@ async fn revokasi_token_berlaku() {
     );
 }
 
+#[tokio::test]
+async fn rate_limit_per_user() {
+    let dir = temp_root();
+    let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
+    let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
+    let state = AppState::open_mock_with_limits(
+        &dir,
+        AuthConfig::Enabled { secret: SECRET.to_vec() },
+        3,
+    )
+    .unwrap();
+    let app = router(state);
+    let tok = token("alice", &[&pid], &[canonical.clone()], false);
+    let body = json!({ "project_id": pid, "query": "x", "k": 1 });
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/projects/open",
+            json!({ "path": canonical }), Some(&tok)
+        ).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/retrieve", body.clone(), Some(&tok)).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/retrieve", body.clone(), Some(&tok)).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/retrieve", body, Some(&tok)).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // healthz tidak kena rate limit
+    assert_eq!(call(&app, "GET", "/healthz", json!({}), None).await, StatusCode::OK);
+}
+
 fn hex12(d: &[u8]) -> String {
     d.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }

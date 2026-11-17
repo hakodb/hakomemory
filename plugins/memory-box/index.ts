@@ -137,7 +137,7 @@ export default {
         if (!query) return
         // konteks codebase + pelajaran prosedural yang tersimpan
         const [res, proc] = await Promise.all([
-          retrieve(query, 5),
+          retrieve(query, 3),
           post(`${server}/v1/memory/search`, {
             project_id: projectID,
             kind: "procedural",

@@ -62,12 +62,34 @@ fn http_post_json(path: &str, body: &Value) -> Result<Value, String> {
     let mut resp = Vec::new();
     std::io::Read::read_to_end(&mut stream, &mut resp).map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&resp);
-    // body setelah \r\n\r\n
-    let body = text.splitn(2, "\r\n\r\n").nth(1).unwrap_or("");
-    // chunked? sederhana: kalau ada Transfer-Encoding: chunked, dekode minim
-    let chunked = text.to_ascii_lowercase().contains("transfer-encoding: chunked");
-    let body = if chunked { dechunk(body) } else { body.to_string() };
-    serde_json::from_str(&body).map_err(|e| format!("respons bukan JSON: {e}: {body:.200}"))
+    let body = parse_http_response(&text)?;
+    serde_json::from_str(&body).map_err(|e| format!("respons bukan JSON: {e}: {}", clip(&body)))
+}
+
+/// Potong string untuk pesan error (jangan membanjiri stderr MCP).
+fn clip(s: &str) -> String {
+    s.chars().take(200).collect()
+}
+
+/// Cek status HTTP lalu ambil body. Error 4xx/5xx tidak boleh dianggap
+/// sebagai hasil sukses hanya karena bodynya kebetulan JSON valid.
+fn parse_http_response(text: &str) -> Result<String, String> {
+    let status = text
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok());
+    let raw = text.splitn(2, "\r\n\r\n").nth(1).unwrap_or("");
+    let body = if text.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+        dechunk(raw)
+    } else {
+        raw.to_string()
+    };
+    match status {
+        Some(200..=299) => Ok(body),
+        Some(code) => Err(format!("HTTP {code}: {}", clip(&body))),
+        None => Err(format!("respons HTTP tanpa status: {}", clip(&body))),
+    }
 }
 
 fn dechunk(body: &str) -> String {
@@ -161,9 +183,8 @@ fn tool_save(args: &Value) -> Result<Value, String> {
         "project_id": pid,
         "text": args["text"].as_str().unwrap_or_default(),
     });
-    if let Some(k) = args["kind"].as_str() {
-        body["kind"] = json!(k);
-    }
+    // API mewajibkan kind — samakan dengan plugin (default semantic).
+    body["kind"] = json!(args["kind"].as_str().unwrap_or("semantic"));
     if let Some(m) = args.get("metadata") {
         body["metadata"] = m.clone();
     }
@@ -173,9 +194,13 @@ fn tool_save(args: &Value) -> Result<Value, String> {
 
 fn tool_forget(args: &Value) -> Result<Value, String> {
     let pid = project_id()?;
+    // API memerlukan kind untuk memilih koleksi mem_* — jangan menebak.
+    let kind = args["kind"]
+        .as_str()
+        .ok_or("kind wajib: episodic | semantic | procedural")?;
     let r = http_post_json(
         "/v1/memory/forget",
-        &json!({ "project_id": pid, "id": args["id"].as_str().unwrap_or_default() }),
+        &json!({ "project_id": pid, "kind": kind, "id": args["id"].as_str().unwrap_or_default() }),
     )?;
     Ok(json!({ "content": [{ "type": "text", "text": format!("{}", r) }] }))
 }
@@ -298,9 +323,12 @@ fn tools() -> Value {
             "query": { "type": "string" }, "kind": { "type": "string", "enum": ["episodic","semantic","procedural"] }, "k": { "type": "integer" }
         }), &["query"]),
         obj("memory.save", "Simpan memory jangka panjang.", json!({
-            "text": { "type": "string" }, "kind": { "type": "string", "enum": ["episodic","semantic","procedural"] }, "metadata": { "type": "object" }
+            "text": { "type": "string" }, "kind": { "type": "string", "enum": ["episodic","semantic","procedural"], "description": "default semantic" }, "metadata": { "type": "object" }
         }), &["text"]),
-        obj("memory.forget", "Hapus memory by id.", json!({ "id": { "type": "string" } }), &["id"]),
+        obj("memory.forget", "Hapus memory by id dari koleksi tertentu.", json!({
+            "id": { "type": "string" },
+            "kind": { "type": "string", "enum": ["episodic","semantic","procedural"] }
+        }), &["id", "kind"]),
         obj("memory.symbols", "Lookup simbol by nama (id, kind, path, line).", json!({ "name": { "type": "string" } }), &["name"]),
         obj("memory.graph", "Subgraph call sekitar simbol: siapa memanggil apa. Seed = nama simbol atau symbols/<id>.", json!({
             "seed": { "type": "string" }, "hops": { "type": "integer", "description": "default 2" }
@@ -374,5 +402,35 @@ fn main() {
         let resp = json!({ "jsonrpc": "2.0", "id": id, "result": result });
         let _ = writeln!(out, "{resp}");
         let _ = out.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn respons_sukses_diterima() {
+        let raw = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"ok\":true}";
+        assert_eq!(parse_http_response(raw).unwrap(), "{\"ok\":true}");
+    }
+
+    #[test]
+    fn respons_error_tidak_dianggap_sukses() {
+        let raw = "HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 30\r\n\r\n{\"error\":\"missing field kind\"}";
+        let err = parse_http_response(raw).unwrap_err();
+        assert!(err.contains("HTTP 422"), "{err}");
+        assert!(err.contains("missing field kind"), "{err}");
+    }
+
+    #[test]
+    fn respons_chunked_didekode() {
+        let raw = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
+        assert_eq!(parse_http_response(raw).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn respons_tanpa_status_ditolak() {
+        assert!(parse_http_response("tidak ada status").is_err());
     }
 }

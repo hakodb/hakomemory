@@ -4,7 +4,7 @@ use crate::indexer;
 use crate::state::AppState;
 use crate::store::project_id;
 use anyhow::{anyhow, Result};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json};
 use hakodb::document::hako_doc::HakoDoc;
@@ -125,7 +125,7 @@ pub struct IndexStatus {
 
 pub async fn index_status(
     State(state): State<Arc<AppState>>,
-    Json(input): Json<IndexStatus>,
+    Query(input): Query<IndexStatus>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let store = state.store.clone();
     let pid = input.project_id.clone();

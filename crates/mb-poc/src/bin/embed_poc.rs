@@ -1,7 +1,7 @@
-//! POC fase 1 langkah 2: embedder MiniLM-L6 (384d, ONNX lokal via fastembed)
+//! POC fase 1 langkah 2: embedder MiniLM 384d (candle pure-Rust)
 //! + hybrid_search end-to-end dengan embedding sungguhan.
 //!
-//! Model diunduh sekali ke cache (FASTEMBED_CACHE_DIR), lalu offline.
+//! Model diunduh sekali ke cache (MEMORYBOX_MODEL_CACHE), lalu offline.
 
 use anyhow::Result;
 use hakodb::config::{DurabilityMode, HakoConfig};
@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     println!("== 0. open HakoDB dulu (pemilik pool rayon global) ==");
     let db = open_db(&dir)?;
 
-    println!("== 1. load MiniLM-L6 (384d, candle pure-Rust) — unduh sekali, lalu cache ==");
+    println!("== 1. load model embedding 384d (candle pure-Rust) — unduh sekali, lalu cache ==");
     let t0 = std::time::Instant::now();
     let mut model = Embedder::load(&mb_embed::model_from_env(), Some(&cache))?;
     println!("   model siap dalam {:.1} s", t0.elapsed().as_secs_f64());

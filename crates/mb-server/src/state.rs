@@ -4,7 +4,7 @@
 use crate::embed::SharedEmbedder;
 use crate::store::ProjectStore;
 use crate::watcher;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -34,6 +34,16 @@ impl AppState {
                 dirs_or_default("huggingface").unwrap_or_else(|| data_dir.join("model-cache"))
             });
         let embedder = Arc::new(SharedEmbedder::load(&cache)?);
+        // Gagal cepat di startup, bukan panic di tengah indexing: dimensi
+        // model harus 384 karena skema index & data yang sudah ada.
+        if embedder.dim() != crate::store::DIM {
+            bail!(
+                "dimensi model {} != {} — memory-box terikat 384d; \
+                 gunakan model 384d atau wipe data sebelum ganti model",
+                embedder.dim(),
+                crate::store::DIM
+            );
+        }
         Ok(Self::with_embedder(store, embedder))
     }
 

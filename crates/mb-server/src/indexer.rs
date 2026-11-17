@@ -356,7 +356,12 @@ pub fn scan(
             });
         }
     }
-    assert_eq!(embedder.dim(), DIM);
+    if embedder.dim() != DIM {
+        anyhow::bail!(
+            "dimensi embedder {} != DIM {DIM} — skema index tidak cocok",
+            embedder.dim()
+        );
+    }
 
     // ---- pass 2: tree-sitter symbols ----
     let mut parsed: Vec<Option<parser::ParsedFile>> = Vec::with_capacity(file_data.len());

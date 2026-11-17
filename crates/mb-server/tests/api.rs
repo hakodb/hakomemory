@@ -66,7 +66,13 @@ async fn healthz_and_project_status() {
     assert_eq!(body["status"], "ok");
 
     let pid = open_project(&app, &dir).await;
-    let (status, body) = call(&app, "GET", "/v1/index/status", json!({ "project_id": pid })).await;
+    let (status, body) = call(
+        &app,
+        "GET",
+        &format!("/v1/index/status?project_id={pid}"),
+        json!({}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.get("vector_complete").is_some());
     assert!(body.get("quiescent").is_some());
@@ -273,4 +279,8 @@ async fn bad_requests_are_rejected() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // index/status memakai query string, bukan body JSON
+    let (status, _) = call(&app, "GET", "/v1/index/status", json!({})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }

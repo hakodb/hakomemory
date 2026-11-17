@@ -276,8 +276,8 @@ konteks codebase dan hemat token/request.
 | Keputusan | Pilihan | Alasan |
 |---|---|---|
 | Runtime server | **Rust + axum**, link crate `hakodb` langsung | Hemat memori; 1 binary statis; hakobackend tidak memadai (lihat §3) |
-| Storage | HakoDB **v0.20.6** in-process, 1 instance per project | Isolasi bersih, backup/enkripsi per project; lazy open + LRU |
-| Embedding | **MiniLM-L6 384d lokal (ONNX)** — fastembed-rs / ort | Gratis, offline, hemat token; kualitas cukup untuk kode |
+| Storage | HakoDB **v0.20.8** in-process, 1 instance per project | Isolasi bersih, backup/enkripsi per project; lazy open (instance tetap terbuka sampai proses mati — LRU belum diimplementasi, lihat §6) |
+| Embedding | **paraphrase-multilingual-MiniLM-L12-v2 384d lokal (candle)**; `MEMORYBOX_MODEL=en` → MiniLM-L6 | Gratis, offline, bilingual (ID/EN); candle pure-Rust untuk glibc 2.17 |
 | Cakupan | Semua sekaligus (codebase memory + long-term memory + skill) | — |
 | Data root | `~/.memory-box/projects/<projectId>/` | `projectId` = hash dari `project.canonical` (klien kirim) |
 
@@ -336,15 +336,15 @@ dipakai. → Dipakai sebagai **referensi arsitektur** saja.
 │  compaction + tools +   │   │                         │
 │  skill learner          │   │                         │
 └───────────┬─────────────┘   └───────────┬─────────────┘
-            └──────── HTTP + WS ───────────┘
+            └──────── HTTP ──────────────────┘
                  ▼
    memory-box server (Rust, axum, binary statis)
-   ├─ embedder: MiniLM-L6 384d (ONNX, lokal, 1 instance dibagi semua klien)
+   ├─ embedder: MiniLM 384d multibahasa (candle, lokal, 1 instance dibagi semua klien)
    ├─ indexer: notify (watch) + tree-sitter chunker → chunks/symbols/edges
    ├─ retrieval: hybrid_search (RRF native) + subgraph_json + graph_pagerank
    │             + scoring recency/importance (lapisan custom kecil)
    ├─ memory: write/search episodic·semantic·procedural (soft delete = forget)
-   └─ storage: hakodb 0.20.6 in-process, 1 instance per project (LRU)
+   └─ storage: hakodb 0.20.8 in-process, 1 instance per project (open seumur proses; LRU belum diimplementasi)
 ```
 
 ### 4.1 Skema koleksi per project
@@ -372,9 +372,12 @@ POST /v1/graph/context            {project_id, seed, hops?, k?}          (subgra
 POST /v1/graph/rank               {project_id, seeds[], damping?, top?}  (PPR)
 POST /v1/memory/write             {project_id, kind, text, metadata}
 POST /v1/memory/search            {project_id, query, kind?, k?}
-POST /v1/memory/forget            {project_id, id}                       (soft delete)
+POST /v1/memory/forget            {project_id, kind, id}                 (soft delete)
 WS   /v1/events                   progress indexing, invalidasi
 ```
+
+Catatan: `WS /v1/events` masih **draf** — belum terdaftar di `router()`
+(`crates/mb-server/src/lib.rs`). Semua klien saat ini memakai HTTP biasa.
 
 Auth: bind `127.0.0.1` default; bearer token opsional untuk LAN.
 
@@ -395,8 +398,8 @@ Auth: bind `127.0.0.1` default; bearer token opsional untuk LAN.
 
 | Risiko | Mitigasi |
 |---|---|
-| API v0.20.5 muda, tanpa docs | Kunci tag v0.20.6; shim tipis `mb-hako` agar perubahan API tidak merembet |
-| Kualitas retrieval | Evaluasi kecil di fase 2; `autoInject` config default-off dulu |
-| ONNX runtime berat | fastembed-rs (ort) unduh model sekali, cache di data dir |
-| Banyak instance Hako terbuka | LRU close; instance per project hanya saat aktif |
+| API hakodb muda, tanpa docs | Kunci tag v0.20.8 (API tervalidasi POC); catat perubahan di docs/PLAN.md §0.7 |
+| Kualitas retrieval | Evaluasi di scripts/eval-token.py; `autoInject` default-on, bisa dimatikan via opsi plugin |
+| Model ~470 MB | candle + cache HF standar; salin cache ke box lain untuk instalasi offline |
+| Banyak instance Hako terbuka | Belum ada eviksi — instance ditutup saat proses mati. LRU direncanakan; pantau jumlah project aktif. |
 | Node tidak terpasang (plugin dev) | OpenCode memuat TS sendiri; untuk test pakai runtime OpenCode |

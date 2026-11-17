@@ -1,7 +1,8 @@
 //! mb-embed: embedder teks lokal (pure Rust, backend candle).
 //!
-//! Model default: sentence-transformers/all-MiniLM-L6-v2 (384 dim,
-//! mean pooling + L2 normalization). Model diunduh sekali via hf-hub
+//! Model default: paraphrase-multilingual-MiniLM-L12-v2 (384 dim,
+//! mean pooling + L2 normalization) — bilingual ID/EN. Bisa diganti lewat
+//! MEMORYBOX_MODEL=multi|en|<repo-id>. Model diunduh sekali via hf-hub
 //! (cache lokal), lalu inferensi offline.
 
 use anyhow::{anyhow, Context, Result};

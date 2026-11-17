@@ -79,9 +79,8 @@
   pakai `file_name`. Konsekuensi: simbol/edge hasil re-scan file tunggal
   memakai rel pendek (`parser.rs`) beda dengan scan root penuh
   (`mb-server/src/parser.rs`) → id simbol beda untuk file yang sama.
-  TODO: normalisasi rel di watcher.
-- TODO lanjutan: pembersihan simbol/edge stale saat file berubah/dihapus
-  (simbol lama masih ada setelah fungsi dihapus — terverifikasi).
+  **Selesai di fase lanjut**: rel dinormalisasi terhadap root project
+  (koleksi `meta`) dan cleanup stale diimplementasikan — lihat §0.8.
 - Terverifikasi live: edit file → log "watcher re-scan selesai files=1" →
   simbol baru langsung ditemukan `/v1/symbols/lookup`.
 - Watcher hidup per-proses — setelah restart server, aktif lagi saat

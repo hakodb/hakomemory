@@ -71,7 +71,12 @@ export default {
       SERVER_DEFAULT
     const autoInject = opts.autoInject !== false
 
-    const directory = ctx.location?.project?.canonical ?? ctx.location?.directory ?? ""
+    const directory =
+      (typeof opts.projectPath === "string" && opts.projectPath) ||
+      process.env.MEMORYBOX_PROJECT ||
+      ctx.location?.project?.canonical ||
+      ctx.location?.directory ||
+      ""
     if (!directory) return
 
     // buka project di server (idempotent)

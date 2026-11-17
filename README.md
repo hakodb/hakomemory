@@ -27,6 +27,6 @@ plugins/        plugin OpenCode TS (fase 3)
 - [x] Plugin OpenCode V2 (teruji): hooks context/prompt/compaction + tools memory.*
 - [x] Plugin: skill learner (distilasi → mem_procedural; loop tervalidasi,
       generate.text terblokir kuota model gratis — blocker lingkungan)
-- [ ] Server: pembersihan simbol/edge stale + normalisasi rel watcher
-- [ ] MCP adapter tipis
-- [ ] Evaluasi penghematan token vs baseline
+- [x] Server: pembersihan simbol/edge stale + normalisasi rel watcher
+- [x] MCP adapter tipis (mb-mcp, stdio)
+- [x] Evaluasi penghematan token vs baseline (scripts/eval-token.py)

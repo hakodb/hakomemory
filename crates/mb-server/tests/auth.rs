@@ -261,6 +261,62 @@ async fn alias_terikat_user_dan_pid_diotorisasi_lewat_root() {
     );
 }
 
+#[tokio::test]
+async fn memory_terisolasi_per_user() {
+    let dir = temp_root();
+    let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
+    let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
+    let app = app_with_auth(&dir);
+    let tok_a = token("alice", &[], &[canonical.clone()], false);
+    let tok_b = token("bob", &[], &[canonical.clone()], false);
+
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/projects/open",
+            json!({ "path": canonical }),
+            Some(&tok_a)
+        )
+        .await,
+        StatusCode::OK
+    );
+
+    let (status, written) = call_json(
+        &app,
+        "POST",
+        "/v1/memory/write",
+        json!({
+            "project_id": pid,
+            "kind": "semantic",
+            "text": "rahasia khusus alice: kunci部署 abc123",
+            "agent_id": "agent-a",
+            "session_id": "ses-1"
+        }),
+        Some(&tok_a),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{written}");
+    let id = written["id"].as_str().unwrap().to_string();
+
+    let body = json!({ "project_id": pid, "kind": "semantic", "query": "rahasia alice kunci", "k": 5 });
+    let (_, a) = call_json(&app, "POST", "/v1/memory/search", body.clone(), Some(&tok_a)).await;
+    assert!(a["hits"].as_array().unwrap().len() >= 1, "alice harus melihat memori sendiri");
+    let (_, b) = call_json(&app, "POST", "/v1/memory/search", body, Some(&tok_b)).await;
+    assert!(b["hits"].as_array().unwrap().is_empty(), "bob tidak boleh melihat memori alice: {b}");
+
+    // bob tidak bisa menghapus milik alice; alice bisa
+    let fbody = json!({ "project_id": pid, "kind": "semantic", "id": id });
+    assert_eq!(
+        call(&app, "POST", "/v1/memory/forget", fbody.clone(), Some(&tok_b)).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/memory/forget", fbody, Some(&tok_a)).await,
+        StatusCode::OK
+    );
+}
+
 fn hex12(d: &[u8]) -> String {
     d.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }

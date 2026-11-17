@@ -351,6 +351,10 @@ pub struct MemoryWrite {
     pub text: String,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 pub async fn memory_write(
@@ -365,6 +369,9 @@ pub async fn memory_write(
     let pid = input.project_id.clone();
     let text = input.text.clone();
     let metadata = input.metadata.clone();
+    let sub = auth.sub.clone();
+    let agent_id = input.agent_id.clone();
+    let session_id = input.session_id.clone();
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
         let emb = embedder.embed_one(&text)?;
@@ -380,6 +387,13 @@ pub async fn memory_write(
         let mut d = HakoDoc::default();
         d.insert("text", Value::String(text.clone()));
         d.insert("emb", Value::Binary(hakodb::index::vector::encode_f32s(&emb)));
+        d.insert("user_id", Value::String(sub.clone()));
+        if let Some(a) = agent_id {
+            d.insert("agent_id", Value::String(a));
+        }
+        if let Some(sess) = session_id {
+            d.insert("session_id", Value::String(sess));
+        }
         d.insert(
             "ts",
             Value::Int(
@@ -431,14 +445,23 @@ pub async fn memory_search(
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
+    let sub = auth.sub.clone();
+    let is_admin = auth.admin;
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
         let qv = embedder.embed_one(&query)?;
         // k per koleksi lalu merge-score, ambil k terbaik
         let mut hits: Vec<serde_json::Value> = Vec::new();
         for (col, kind) in &cols {
-            let rows = db.hybrid_search(col.as_str(), "text", &query, "emb", &qv, k, 60)?;
+            // ambil lebih banyak kandidat lalu filter owner (hybrid_search
+            // belum punya filter field). Non-admin tidak melihat dokumen lama
+            // tanpa user_id sampai di-backfill.
+            let want = if is_admin { k } else { k.saturating_mul(5).max(20) };
+            let rows = db.hybrid_search(col.as_str(), "text", &query, "emb", &qv, want, 60)?;
             for (id, score, doc) in rows {
+                if !is_admin && !matches!(doc.get("user_id"), Some(Value::String(u)) if u == &sub) {
+                    continue;
+                }
                 hits.push(serde_json::json!({
                     "id": id,
                     "kind": kind.as_str(),
@@ -478,14 +501,24 @@ pub async fn memory_forget(
     let col = memory_col(&input.kind).map_err(err400)?;
     let store = state.store.clone();
     let (pid, id) = (input.project_id.clone(), input.id.clone());
+    let sub = auth.sub.clone();
+    let is_admin = auth.admin;
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
+        if let Some(doc) = db.get(&col, &id)? {
+            if !is_admin && !matches!(doc.get("user_id"), Some(Value::String(u)) if u == &sub) {
+                return Ok::<_, anyhow::Error>(serde_json::json!({ "forbidden": true }));
+            }
+        }
         db.delete(&col, &id)?; // soft delete (restoreable) — hakodb v0.20.0
         Ok::<_, anyhow::Error>(serde_json::json!({ "forgotten": id }))
     })
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?
     .map_err(err500)?;
+    if res.get("forbidden").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Err(auth_err(StatusCode::FORBIDDEN));
+    }
     Ok(Json(res))
 }
 

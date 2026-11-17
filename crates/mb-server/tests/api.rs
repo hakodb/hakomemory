@@ -180,8 +180,20 @@ async fn index_symbols_graph_retrieve_and_remove() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{graph}");
-    assert!(graph["nodes"].as_array().map_or(false, |n| !n.is_empty()));
+    let nodes = graph["nodes"].as_array().unwrap();
+    assert!(!nodes.is_empty());
     assert!(graph["edges"].as_array().map_or(false, |e| !e.is_empty()));
+    // v0.21.0 proyeksi: emb tidak pernah ikut, tapi field edge-doc tetap ada
+    assert!(
+        nodes.iter().all(|n| n["doc"].get("emb").is_none()),
+        "emb bocor ke respons graph"
+    );
+    assert!(
+        nodes.iter().any(|n| n["collection"] == "edges"
+            && n["doc"].get("callee").is_some()
+            && n["doc"].get("to_path").is_some()),
+        "field edge-doc hilang dari proyeksi: {graph}"
+    );
 
     let (status, retrieved) = call(
         &app,

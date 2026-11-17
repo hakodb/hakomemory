@@ -293,18 +293,14 @@ pub async fn graph_context(
             include_path: false,
             include_via: false,
         };
-        let json = db.subgraph_json(&col, &id, &spec)?;
-        let mut v: serde_json::Value = serde_json::from_str(&json)?;
-        // buang field emb (384 float) dari node chunk — plugin hanya butuh
-        // path/content/start_line; tanpa ini respons ~70% binatang kosong
-        if let Some(nodes) = v.get_mut("nodes").and_then(|n| n.as_array_mut()) {
-            for n in nodes {
-                if let Some(doc) = n.get_mut("doc").and_then(|d| d.as_object_mut()) {
-                    doc.remove("emb");
-                }
-            }
-        }
-        Ok::<_, anyhow::Error>(v)
+        // v0.21.0: proyeksi di engine — `emb` tidak pernah ikut di-serialize.
+        const FIELDS: &[&str] = &[
+            "name", "kind", "path", "start_line", "ref_chunks", "content",
+            "_from", "_to", "callee", "to_path", "w",
+        ];
+        let fields: Vec<String> = FIELDS.iter().map(|s| s.to_string()).collect();
+        let json = db.subgraph_json_projected(&col, &id, &spec, Some(&fields))?;
+        Ok::<_, anyhow::Error>(serde_json::from_str::<serde_json::Value>(&json)?)
     })
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?

@@ -206,6 +206,50 @@ async fn index_symbols_graph_retrieve_and_remove() {
 }
 
 #[tokio::test]
+async fn full_rescan_removes_files_missing_from_disk() {
+    let (app, dir) = test_app();
+    let pid = open_project(&app, &dir).await;
+    let old = dir.join("moved_file.rs");
+    std::fs::write(&old, "pub fn moved_marker() -> u32 { 7 }\n").unwrap();
+    call(
+        &app,
+        "POST",
+        "/v1/index/scan",
+        json!({ "project_id": pid, "path": dir.to_string_lossy() }),
+    )
+    .await;
+
+    // pindahkan file (mirip git mv saat server tidak berjalan), lalu rescan root
+    let sub = dir.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::rename(&old, sub.join("moved_file.rs")).unwrap();
+    let (_, report) = call(
+        &app,
+        "POST",
+        "/v1/index/scan",
+        json!({ "project_id": pid, "path": dir.to_string_lossy() }),
+    )
+    .await;
+    assert!(report["removed"].as_u64().unwrap() > 0, "{report}");
+
+    let (_, syms) = call(
+        &app,
+        "POST",
+        "/v1/symbols/lookup",
+        json!({ "project_id": pid, "name": "moved_marker", "k": 10 }),
+    )
+    .await;
+    let paths: Vec<&str> = syms["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["path"].as_str().unwrap())
+        .collect();
+    assert!(!paths.contains(&"moved_file.rs"), "path lama harus hilang: {paths:?}");
+    assert!(paths.contains(&"sub/moved_file.rs"), "path baru harus ada: {paths:?}");
+}
+
+#[tokio::test]
 async fn bad_requests_are_rejected() {
     let (app, dir) = test_app();
     let pid = open_project(&app, &dir).await;

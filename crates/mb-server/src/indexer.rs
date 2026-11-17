@@ -146,6 +146,27 @@ pub struct ScanReport {
     pub settled: usize,
 }
 
+/// Rel yang masih tersimpan di DB di bawah `prefix` scan tetapi tidak
+/// termasuk hasil scan saat ini (file sudah hilang, misal akibat `git mv`
+/// saat server mati). Dipakai scan direktori — bukan scan file tunggal.
+fn missing_rels(db: &Hako, prefix: &str, present: &KeepMap) -> Result<Vec<String>> {
+    let mut out = HashSet::new();
+    for col in ["chunks", "symbols", "edges"] {
+        let q = Query::new(col).limit(100_000);
+        for (_, doc) in db.query(q).map_err(|e| anyhow::anyhow!("{e}"))? {
+            if let Some(Value::String(path)) = doc.get("path") {
+                if !path.is_empty()
+                    && path.starts_with(prefix)
+                    && !present.contains_key(path)
+                {
+                    out.insert(path.clone());
+                }
+            }
+        }
+    }
+    Ok(out.into_iter().collect())
+}
+
 /// id yang harus dipertahankan per rel per koleksi — dasar cleanup.
 type KeepMap = HashMap<String, HashMap<&'static str, HashSet<String>>>;
 
@@ -274,7 +295,17 @@ pub fn scan(
 ) -> Result<ScanReport> {
     let mut files = Vec::new();
     let mut removed_rels: Vec<String> = Vec::new();
+    let mut scan_prefix: Option<String> = None;
     if target.is_dir() {
+        // prefix rel terhadap root project — untuk mendeteksi file lama
+        // yang hilang dari disk (misal git mv saat server tidak jalan)
+        scan_prefix = match target.strip_prefix(rel_base) {
+            Ok(rel) => {
+                let s = rel.to_string_lossy().trim_matches('/').to_string();
+                Some(if s.is_empty() { String::new() } else { format!("{s}/") })
+            }
+            Err(_) => None,
+        };
         push_file_rec(&mut files, target);
     } else if target.is_file() {
         if is_source(target) {
@@ -426,12 +457,22 @@ pub fn scan(
     // merekonsiliasi (bebas race urutan file dalam batch).
     let del_ops = stale_deletes(db, &keep, &removed_rels)?;
     let (n_symbols, n_edges, n_removed) = (symbol_ops.len(), edge_ops.len(), del_ops.len());
+    // file yang hilang dari disk tapi tidak masuk removed_rels (misal pemindahan
+    // dibuat saat server mati) — kumpulkan SEBELUM tulis.batch ini
+    let gone: Vec<String> = match scan_prefix.as_deref() {
+        Some(prefix) => missing_rels(db, prefix, &keep)?,
+        None => Vec::new(),
+    };
     let mut ops = chunk_ops;
     ops.extend(symbol_ops);
     ops.extend(edge_ops);
     ops.extend(del_ops);
     if !ops.is_empty() {
         db.write_batch(ops)?;
+    }
+    let mut n_removed = n_removed;
+    for rel in &gone {
+        n_removed += remove_rel(db, rel)?;
     }
 
     // ---- pass 4 (pasca-tulis): rekonsiliasi edge milik rel batch ----

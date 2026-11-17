@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use mb_server::router;
 use mb_server::state::AppState;
 
@@ -29,7 +29,13 @@ async fn main() -> Result<()> {
     let app_state = AppState::open(&data_dir)?;
     let app = router(app_state);
 
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    // Endpoint permanen: default loopback; set MEMORYBOX_HOST ke IP internal
+    // (mis. 10.10.8.4) untuk akses LAN tanpa reverse proxy/vhost.
+    let host = std::env::var("MEMORYBOX_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let ip: std::net::IpAddr = host
+        .parse()
+        .with_context(|| format!("MEMORYBOX_HOST bukan alamat IP: {host}"))?;
+    let addr = std::net::SocketAddr::new(ip, port);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("memory-box listening on http://{addr} (data: {})", data_dir.display());
     axum::serve(listener, app).await?;

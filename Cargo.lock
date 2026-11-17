@@ -1705,6 +1705,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mb-embed-adapter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "mb-poc"
 version = "0.1.0"
 dependencies = [

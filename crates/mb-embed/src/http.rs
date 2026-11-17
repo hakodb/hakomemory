@@ -88,10 +88,25 @@ impl TextEmbedder for HttpEmbedder {
     }
 
     fn embed(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        self.embed_with_role(texts, "document")
+    }
+
+    fn embed_one(&mut self, text: &str) -> Result<Vec<f32>> {
+        let mut rows = self.embed_with_role(&[text.to_string()], "query")?;
+        Ok(rows.remove(0))
+    }
+}
+
+impl HttpEmbedder {
+    fn embed_with_role(&mut self, texts: &[String], role: &str) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        let value = self.request("POST", "/embed", &json!({ "texts": texts }))?;
+        let value = self.request(
+            "POST",
+            "/embed",
+            &json!({ "texts": texts, "role": role }),
+        )?;
         if let Some(d) = value.get("dim").and_then(|v| v.as_u64()) {
             if d as usize != self.dim {
                 return Err(anyhow!(
@@ -135,11 +150,6 @@ impl TextEmbedder for HttpEmbedder {
             out.push(v);
         }
         Ok(out)
-    }
-
-    fn embed_one(&mut self, text: &str) -> Result<Vec<f32>> {
-        let mut rows = self.embed(&[text.to_string()])?;
-        Ok(rows.remove(0))
     }
 }
 

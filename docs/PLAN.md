@@ -446,3 +446,20 @@ existing.
   (field/index baru + re-embed), bukan silent corruption.
 - Test: `tests/embed_spec.rs` (persist/mismatch + project 768d end-to-end) dan
   uji live remote embedder HTTP 768d (write + search sukses). Total 27 test.
+
+
+### 0.12 Adapter embedding online (teruji dengan mock vendor)
+
+`crates/mb-embed-adapter`: jembatan protokol internal (`/dim`, `/embed`) ke
+Cohere `/v2/embed`, OpenAI `/v1/embeddings`, atau Gemini
+`:batchEmbedContents`. Fitur:
+- API key hanya di proses adapter; server memory-box tetap vendor-agnostik.
+- Role `query` vs `document` → `search_query`/`search_document` (Cohere),
+  `CODE_RETRIEVAL_QUERY`/`RETRIEVAL_DOCUMENT` (Gemini v1), atau task prefix
+  (Gemini v2).
+- Validasi jumlah vektor + dimensi + L2 normalisasi sebelum dikembalikan.
+- `MEMORYBOX_ADAPTER_BASE_URL` untuk mock/proxy.
+
+Teruji: 3 unit test + uji live ketiga provider memakai mock vendor dengan
+server 384→4d (write + search sukses). Benchmark dengan kredensial nyata
+masih terbuka.

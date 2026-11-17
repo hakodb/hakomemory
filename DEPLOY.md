@@ -219,3 +219,36 @@ memakai dimensi tersebut. HakoDB mendukung 1..=4096 dimensi.
   {"dim":N,"vectors":[[f32,...],...]}`.
 - Membuka project lama dengan dimensi berbeda **ditolak** dengan pesan migrasi;
   jangan menimpa index `emb` — siapkan field/index baru lalu re-embed.
+
+## Online embedding adapter (opsional)
+
+`mb-embed-adapter` menerjemahkan protokol internal `/dim` + `/embed` ke API
+vendor. API key hanya tersimpan di proses adapter.
+
+```bash
+# Cohere (native 384d, termasuk bahasa Indonesia) — direkomendasikan
+MEMORYBOX_ADAPTER_PROVIDER=cohere \
+MEMORYBOX_ADAPTER_API_KEY=<key> \
+MEMORYBOX_ADAPTER_MODEL=embed-multilingual-light-v3.0 \
+MEMORYBOX_ADAPTER_DIM=384 ./target/release/mb-embed-adapter
+
+# OpenAI (MRL shortened)
+MEMORYBOX_ADAPTER_PROVIDER=openai MEMORYBOX_ADAPTER_API_KEY=<key> \
+MEMORYBOX_ADAPTER_MODEL=text-embedding-3-small MEMORYBOX_ADAPTER_DIM=384 ...
+
+# Gemini (perlu eval untuk 384d)
+MEMORYBOX_ADAPTER_PROVIDER=gemini MEMORYBOX_ADAPTER_API_KEY=<key> \
+MEMORYBOX_ADAPTER_MODEL=gemini-embedding-001 MEMORYBOX_ADAPTER_DIM=384 ...
+```
+
+Lalu arahkan server:
+```
+MEMORYBOX_EMBED_URL=http://127.0.0.1:7416
+MEMORYBOX_EMBED_DIM=384
+```
+
+Role otomatis: `embed_one()` (query) mengirim `role: "query"` →
+`search_query` (Cohere) / `CODE_RETRIEVAL_QUERY` (Gemini v1) / task prefix
+(Gemini v2); `embed()` (indexing) mengirim `role: "document"`.
+
+Untuk pengujian tanpa kuota, set `MEMORYBOX_ADAPTER_BASE_URL=http://127.0.0.1:<mock>`.

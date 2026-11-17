@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/mb-poc", "crates/mb-server", "crates/mb-embed"]
+members = ["crates/mb-poc", "crates/mb-server", "crates/mb-embed", "crates/mb-embed-adapter"]
 
 [workspace.package]
 edition = "2021"

@@ -17,6 +17,7 @@ crates/
   mb-poc/       Phase-1 POC: HakoDB wave-1 API + local embedder (done)
   mb-embed/     local text embedding: multilingual MiniLM 384d (candle, pure Rust)
   mb-server/    axum server + mb-mcp stdio MCP adapter
+  mb-embed-adapter/  internal HTTP -> Cohere/OpenAI/Gemini embedding bridge
 plugins/
   memory-box/   OpenCode V2 plugin (TypeScript, no npm needed)
 .opencode/
@@ -49,6 +50,8 @@ docs/           design log + auth assessment
 - [x] Safe LRU: `open_exclusive`, Weak watcher, idle TTL + strong-count guard
 - [x] Model-agnostic embeddings: persisted `EmbeddingSpec` (384–4096d), remote
       HTTP embedder backend, hard error on dimension mismatch
+- [x] Vendor adapter: `mb-embed-adapter` bridges internal HTTP to Cohere,
+      OpenAI, or Gemini with query/document roles
 - [x] Agent guidance: skill, read-only subagent, `AGENTS.md`
 - [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
@@ -95,6 +98,11 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_EMBED_DIM` | required if URL | vector dimension of the HTTP embedder |
 | `MEMORYBOX_EMBED_TOKEN` | unset | bearer token for the HTTP embedder |
 | `MEMORYBOX_EMBED_MODEL` | `http-embedder` | model id recorded in project spec |
+| `MEMORYBOX_ADAPTER_PROVIDER` | — | adapter: `cohere\|openai\|gemini` |
+| `MEMORYBOX_ADAPTER_API_KEY` | — | vendor API key (adapter process only) |
+| `MEMORYBOX_ADAPTER_DIM` | `384` | output dimension |
+| `MEMORYBOX_ADAPTER_MODEL` | per provider | vendor model id |
+| `MEMORYBOX_ADAPTER_BASE_URL` | vendor default | override/proxy URL |
 | `MEMORYBOX_MAX_PROJECTS` | `8` | max open Hako instances (0 = no eviction) |
 | `MEMORYBOX_PROJECT_IDLE_SECS` | `1800` | min idle before LRU eviction |
 | `MEMORYBOX_URL` | `http://127.0.0.1:7412` | server URL (plugin / MCP) |

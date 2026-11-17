@@ -336,7 +336,8 @@ pub async fn memory_write(
 #[derive(Deserialize)]
 pub struct MemorySearch {
     pub project_id: String,
-    pub kind: String,
+    /// opsional: episodic/semantic/procedural; tanpa ini = gabung semua
+    pub kind: Option<String>,
     pub query: String,
     #[serde(default = "default_k")]
     pub k: usize,
@@ -346,25 +347,40 @@ pub async fn memory_search(
     State(state): State<Arc<AppState>>,
     Json(input): Json<MemorySearch>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let col = memory_col(&input.kind).map_err(err400)?;
+    // 0..3 koleksi memory sesuai kind (tanpa kind = semua)
+    let cols: Vec<(String, String)> = match input.kind.as_deref() {
+        Some(k) => vec![(memory_col(k).map_err(err400)?.to_string(), k.to_string())],
+        None => crate::store::MEMORY_COLLECTIONS
+            .iter()
+            .map(|c| (c.to_string(), c[4..].to_string())) // mem_episodic -> episodic
+            .collect(),
+    };
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
         let qv = embedder.embed_one(&query)?;
-        let rows = db.hybrid_search(&col, "text", &query, "emb", &qv, k, 60)?;
-        let hits: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|(id, score, doc)| {
-                serde_json::json!({
+        // k per koleksi lalu merge-score, ambil k terbaik
+        let mut hits: Vec<serde_json::Value> = Vec::new();
+        for (col, kind) in &cols {
+            let rows = db.hybrid_search(col.as_str(), "text", &query, "emb", &qv, k, 60)?;
+            for (id, score, doc) in rows {
+                hits.push(serde_json::json!({
                     "id": id,
+                    "kind": kind.as_str(),
                     "score": score,
-                    "text": str_field(doc, "text"),
-                    "ts": int_field(doc, "ts"),
-                })
-            })
-            .collect();
+                    "text": str_field(&doc, "text"),
+                    "ts": int_field(&doc, "ts"),
+                }));
+            }
+        }
+        hits.sort_by(|a, b| b["score"]
+            .as_f64()
+            .unwrap_or(0.0)
+            .partial_cmp(&a["score"].as_f64().unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal));
+        hits.truncate(k);
         Ok::<_, anyhow::Error>(serde_json::json!({ "hits": hits }))
     })
     .await

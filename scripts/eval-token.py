@@ -84,7 +84,7 @@ def read_baseline(path):
 
 def run(cases):
     p = pid()
-    META = ("PLAN.md", "README.md", "eval-results.json", "scripts/", "plugins/memory-box/README.md")
+    META = ("PLAN.md", "docs/PLAN.md", "README.md", "eval-results.json", "scripts/", "plugins/memory-box/README.md")
     rows = []
     for q, expected, kw in cases:
         hits = retrieve(p, q, 5)

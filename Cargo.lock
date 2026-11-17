@@ -1719,6 +1719,7 @@ dependencies = [
  "sha2",
  "streaming-iterator",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "tree-sitter",

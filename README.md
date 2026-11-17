@@ -1,97 +1,115 @@
 # memory-box
 
-RAG server untuk OpenCode: prolonged memory, live context, codebase memory,
-dan self-learning skill — di atas HakoDB v0.20.8 (vector HNSW + graph, hybrid
-RRF, GraphRAG primitives) dengan embedding lokal MiniLM 384d multibahasa (paraphrase-multilingual-MiniLM-L12-v2, default).
+A centralized RAG server for OpenCode: prolonged memory, live context,
+codebase memory, and self-learning skills — built on HakoDB v0.20.8
+(vector HNSW + graph, hybrid RRF, GraphRAG primitives) with a local
+multilingual MiniLM embedding (384d, `paraphrase-multilingual-MiniLM-L12-v2`,
+pure Rust via candle). No cloud embedding API, no Node/npm at runtime.
 
-Baca [PLAN.md](PLAN.md) untuk keputusan desain, arsitektur, dan fase kerja.
+See [docs/PLAN.md](docs/PLAN.md) for design decisions, architecture, and the
+work log. Deployment instructions are in [DEPLOY.md](DEPLOY.md).
 
-## Struktur
+## Layout
 
 ```
 crates/
-  mb-poc/       POC fase 1: validasi hakodb wave-1 API + embedder lokal (SELESAI)
-  mb-embed/     embedder teks lokal: MiniLM 384d multibahasa via candle (pure Rust)
-  mb-server/    server axum (fase 2)
-plugins/        plugin OpenCode TS (fase 3)
+  mb-poc/       Phase-1 POC: HakoDB wave-1 API + local embedder (done)
+  mb-embed/     local text embedding: multilingual MiniLM 384d (candle, pure Rust)
+  mb-server/    axum server + mb-mcp stdio MCP adapter
+plugins/
+  memory-box/   OpenCode V2 plugin (TypeScript, no npm needed)
+scripts/        token evaluation + distill end-to-end test
+docs/           design log
 ```
 
 ## Status
 
-- [x] Inisialisasi repo + dokumen kerja
-- [x] POC: hakodb 0.20.8 (hybrid_search, subgraph_json, graph_pagerank)
-- [x] POC: embedder MiniLM lokal (candle pure-Rust, mean pooling)
-- [x] Server axum inti (teruji): multi-project store, /v1/*, memory CRUD
-- [x] Server: lazy-open project (robust restart), request logging
-- [x] Server: indexer tree-sitter (simbol + call-graph, lookup) — tervalidasi
-- [x] Server: auto-indexing watcher (notify, debounce, re-scan per file) — tervalidasi
-- [x] Plugin OpenCode V2 (teruji): hooks context/prompt/compaction + tools memory.*
-- [x] Plugin: skill learner (distilasi → mem_procedural; loop tervalidasi,
-      generate.text terblokir kuota model gratis — blocker lingkungan)
-- [x] Server: pembersihan simbol/edge stale + normalisasi rel watcher
-- [x] MCP adapter tipis (mb-mcp, stdio)
-- [x] Evaluasi penghematan token vs baseline (scripts/eval-token.py)
+- [x] Repo init, MIT license, design log
+- [x] POC: HakoDB v0.20.8 (`hybrid_search`, `subgraph_json`, `graph_pagerank`)
+- [x] Local MiniLM embedder (candle, mean pooling + L2 normalization)
+- [x] Core axum server: multi-project store, `/v1/*`, memory CRUD
+- [x] Lazy project open (restart-safe), request logging
+- [x] Tree-sitter indexer: symbols + call-graph + symbol lookup
+- [x] Auto-indexing watcher (notify, 1.5 s debounce, per-file rescan)
+- [x] OpenCode V2 plugin: `context` / `prompt` / `compaction` hooks + `memory.*` tools
+- [x] Skill learner: distill → `mem_procedural`, injected into the next session
+      (LLM call itself was blocked by free-tier quota in this environment)
+- [x] Stale symbol/edge cleanup + project-root-relative paths
+- [x] Cross-file edge re-resolution (follows moved/removed callees)
+- [x] Thin MCP adapter (`mb-mcp`, stdio JSON-RPC)
+- [x] Token-saving evaluation vs grep/read ([scripts/eval-token.py](scripts/eval-token.py))
+- [x] Automated integration tests for all `/v1/*` endpoints
+- [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
 ## Quickstart
 
 ```bash
-# 1. build (Rust stable; tanpa node/npm)
+# 1. build (Rust stable; no node/npm)
 cargo build --release -p mb-server
 
-# 2. jalankan server (bind 127.0.0.1:7412)
+# 2. run the server (binds 127.0.0.1:7412)
 MEMORYBOX_DATA=~/.memory-box ./target/release/mb-server
 
-# 3. daftarkan project & index codebase
+# 3. open & index a codebase
 curl -s -X POST http://127.0.0.1:7412/v1/projects/open \
-  -H 'content-type: application/json' -d '{"path":"/path/ke/codebase"}'
+  -H 'content-type: application/json' -d '{"path":"/path/to/codebase"}'
 curl -s -X POST http://127.0.0.1:7412/v1/index/scan \
   -H 'content-type: application/json' \
-  -d '{"project_id":"<12-hex dari respons>","path":"/path/ke/codebase"}'
+  -d '{"project_id":"<12-hex id from above>","path":"/path/to/codebase"}'
 
-# 4. cari konteks
+# 4. retrieve context
 curl -s -X POST http://127.0.0.1:7412/v1/retrieve \
   -H 'content-type: application/json' \
-  -d '{"project_id":"<id>","query":"bagaimana watcher bekerja","k":5}'
+  -d '{"project_id":"<id>","query":"how does the watcher work","k":5}'
 ```
 
-Pasang plugin OpenCode dan/atau MCP adapter sesuai [DEPLOY.md](DEPLOY.md).
-Contoh konfigurasi plugin ada di [opencode.json](opencode.json) dan
-[plugins/memory-box/README.md](plugins/memory-box/README.md).
+Install the OpenCode plugin and/or the MCP adapter as described in
+[DEPLOY.md](DEPLOY.md). Example plugin config: [opencode.json](opencode.json)
+and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 
-## Konfigurasi
+## Configuration
 
-| Env | Default | Fungsi |
+| Env | Default | Purpose |
 |---|---|---|
-| `MEMORYBOX_DATA` | `~/.memory-box` | root data per project |
-| `MEMORYBOX_PORT` | `7412` | port server (localhost saja) |
-| `MEMORYBOX_MODEL` | `multi` | `multi`, `en`, atau repo-id HF |
-| `MEMORYBOX_MODEL_CACHE` | `~/.cache/huggingface/hub` | cache model lokal |
-| `MEMORYBOX_WATCH` | aktif | `0` = matikan auto-index watcher |
-| `MEMORYBOX_URL` | `http://127.0.0.1:7412` | URL server (plugin/MCP) |
-| `MEMORYBOX_PROJECT` | direktori sesi | path codebase untuk plugin/MCP |
+| `MEMORYBOX_DATA` | `~/.memory-box` | data root (one subdir per project) |
+| `MEMORYBOX_PORT` | `7412` | server port (localhost only) |
+| `MEMORYBOX_MODEL` | `multi` | `multi`, `en`, or a Hugging Face repo id |
+| `MEMORYBOX_MODEL_CACHE` | `~/.cache/huggingface/hub` | local model cache |
+| `MEMORYBOX_WATCH` | enabled | `0` disables the auto-index watcher |
+| `MEMORYBOX_URL` | `http://127.0.0.1:7412` | server URL (plugin / MCP) |
+| `MEMORYBOX_PROJECT` | session directory | codebase path (plugin / MCP) |
 
-Server **tanpa autentikasi** — jangan diekspos langsung ke jaringan.
+The server has **no authentication** — do not expose it directly to a network.
+See [docs/AUTH.md](docs/AUTH.md) for the auth assessment.
 
-## Endpoint utama
+## API
 
-| Method | Path | Fungsi |
+| Method | Path | Purpose |
 |---|---|---|
 | GET | `/healthz` | health check |
-| POST | `/v1/projects/open` | buka/buat project (id = SHA-256 path) |
-| POST | `/v1/index/scan` | index file/direktori (chunk + simbol + edge) |
-| POST | `/v1/index/remove` | hapus index milik satu file |
-| GET | `/v1/index/status` | status index per project |
-| POST | `/v1/retrieve` | hybrid retrieval kode (FTS + vektor + RRF) |
-| POST | `/v1/memory/write` | tulis memory episodic/semantic/procedural |
-| POST | `/v1/memory/search` | cari memory (semua kind atau tertentu) |
-| POST | `/v1/memory/forget` | hapus memory by id |
-| POST | `/v1/symbols/lookup` | lookup simbol by nama |
-| POST | `/v1/graph/context` | subgraph sekitar simbol |
+| POST | `/v1/projects/open` | open/create project (id = SHA-256 of path) |
+| POST | `/v1/index/scan` | index a file/directory (chunks + symbols + edges) |
+| POST | `/v1/index/remove` | remove the index of one file |
+| GET | `/v1/index/status` | index status for a project |
+| POST | `/v1/retrieve` | hybrid code retrieval (FTS + vector + RRF) |
+| POST | `/v1/memory/write` | write episodic/semantic/procedural memory |
+| POST | `/v1/memory/search` | search memory (all kinds or one kind) |
+| POST | `/v1/memory/forget` | delete memory by id |
+| POST | `/v1/symbols/lookup` | exact symbol lookup by name |
+| POST | `/v1/graph/context` | subgraph context around a symbol |
 
-## Pengujian
+## Testing
 
 ```bash
-cargo test --workspace
-bash scripts/test-distill-e2e.sh   # self-learning tanpa kuota LLM (mock)
-python3 scripts/eval-token.py      # eval hemat token vs grep/read
+cargo test --workspace                 # unit + /v1/* integration tests (mock embedder, offline)
+bash scripts/test-distill-e2e.sh       # self-learning chain with a mock distiller (no LLM quota)
+python3 scripts/eval-token.py          # token savings vs grep/read
 ```
+
+Integration tests live in
+[crates/mb-server/tests/api.rs](crates/mb-server/tests/api.rs) and use a
+deterministic mock embedder, so CI needs neither network nor the 470 MB model.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

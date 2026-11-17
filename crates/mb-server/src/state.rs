@@ -1,5 +1,5 @@
 //! State aplikasi: dibuka HAKO-DULU (pemilik pool rayon global), baru
-//! embedder candle — urutan ini terkunci, lihat PLAN.md §0.2.
+//! embedder candle — urutan ini terkunci, lihat docs/PLAN.md §0.2.
 
 use crate::embed::SharedEmbedder;
 use crate::store::ProjectStore;
@@ -34,7 +34,17 @@ impl AppState {
                 dirs_or_default("huggingface").unwrap_or_else(|| data_dir.join("model-cache"))
             });
         let embedder = Arc::new(SharedEmbedder::load(&cache)?);
+        Ok(Self::with_embedder(store, embedder))
+    }
 
-        Ok(Arc::new(Self { store, embedder, watches: watcher::WatchRegistry::default() }))
+    /// Konstruktor test: embedder mock, tanpa model/unduhan.
+    pub fn open_mock(data_dir: &Path) -> Result<Arc<Self>> {
+        let store = Arc::new(ProjectStore::new(data_dir.to_path_buf()));
+        let embedder = Arc::new(SharedEmbedder::mock(crate::store::DIM));
+        Ok(Self::with_embedder(store, embedder))
+    }
+
+    fn with_embedder(store: Arc<ProjectStore>, embedder: Arc<SharedEmbedder>) -> Arc<Self> {
+        Arc::new(Self { store, embedder, watches: watcher::WatchRegistry::default() })
     }
 }

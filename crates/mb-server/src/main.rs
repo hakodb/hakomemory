@@ -1,15 +1,9 @@
-mod api;
-mod embed;
-mod indexer;
-mod parser;
-mod state;
-mod store;
-mod watcher;
-
 use anyhow::Result;
-use state::AppState;
+use mb_server::router;
+use mb_server::state::AppState;
 
-#[tokio::main]async fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -29,32 +23,11 @@ use state::AppState;
         .and_then(|p| p.parse().ok())
         .unwrap_or(7412);
 
-    // PENTING (lihat PLAN.md §0.2): Hako::open harus inisialisasi pool
+    // PENTING (lihat docs/PLAN.md §0.2): Hako::open harus inisialisasi pool
     // rayon global PERTAMA sebelum embedder (candle/tokenizers) aktif.
     std::fs::create_dir_all(&data_dir)?;
     let app_state = AppState::open(&data_dir)?;
-
-    let app = axum::Router::new()
-        .route("/healthz", axum::routing::get(api::healthz))
-        .route("/v1/projects/open", axum::routing::post(api::projects_open))
-        .route("/v1/index/scan", axum::routing::post(api::index_scan))
-        .route("/v1/index/remove", axum::routing::post(api::index_remove))
-        .route("/v1/index/status", axum::routing::get(api::index_status))
-        .route("/v1/retrieve", axum::routing::post(api::retrieve))
-        .route("/v1/graph/context", axum::routing::post(api::graph_context))
-        .route("/v1/symbols/lookup", axum::routing::post(api::symbols_lookup))
-        .route("/v1/memory/write", axum::routing::post(api::memory_write))
-        .route("/v1/memory/search", axum::routing::post(api::memory_search))
-        .route("/v1/memory/forget", axum::routing::post(api::memory_forget))
-        .layer(axum::middleware::from_fn(|req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| async move {
-            let started = std::time::Instant::now();
-            let method = req.method().clone();
-            let path = req.uri().path().to_string();
-            let res = next.run(req).await;
-            tracing::info!(%method, %path, status = %res.status(), ms = started.elapsed().as_millis(), "request");
-            res
-        }))
-        .with_state(app_state);
+    let app = router(app_state);
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;

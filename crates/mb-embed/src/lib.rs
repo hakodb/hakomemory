@@ -26,6 +26,59 @@ pub fn model_from_env() -> String {
     }
 }
 
+/// Abstraksi embedder — dipakai backend candle maupun mock deterministik
+/// untuk integration test (tanpa unduh model).
+pub trait TextEmbedder: Send {
+    fn dim(&self) -> usize;
+    fn embed(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
+    fn embed_one(&mut self, text: &str) -> Result<Vec<f32>>;
+}
+
+impl TextEmbedder for Embedder {
+    fn dim(&self) -> usize { self.dim }
+    fn embed(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        Embedder::embed(self, texts)
+    }
+    fn embed_one(&mut self, text: &str) -> Result<Vec<f32>> {
+        Embedder::embed_one(self, text)
+    }
+}
+
+/// Embedder deterministik berbasis hash kata (L2-normalized).
+/// Hanya untuk test — tidak kompatibel dengan vektor model asli.
+pub struct MockEmbedder {
+    pub dim: usize,
+}
+
+impl MockEmbedder {
+    pub fn new(dim: usize) -> Self { Self { dim } }
+}
+
+impl TextEmbedder for MockEmbedder {
+    fn dim(&self) -> usize { self.dim }
+    fn embed(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        texts.iter().map(|t| self.embed_one(t)).collect()
+    }
+    fn embed_one(&mut self, text: &str) -> Result<Vec<f32>> {
+        let mut v = vec![0f32; self.dim];
+        for word in text.split_whitespace() {
+            let mut h = 2166136261u32; // FNV-1a
+            for b in word.bytes() {
+                h ^= b as u32;
+                h = h.wrapping_mul(16777619);
+            }
+            v[h as usize % self.dim] += 1.0;
+        }
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for x in &mut v { *x /= norm; }
+        } else {
+            v[0] = 1.0;
+        }
+        Ok(v)
+    }
+}
+
 pub struct Embedder {
     model: BertModel,
     tokenizer: Tokenizer,

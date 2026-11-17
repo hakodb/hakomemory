@@ -24,3 +24,6 @@ tree-sitter-python = "0.25.0"
 tree-sitter-go = "0.25.0"
 streaming-iterator = "0.1.9"
 notify = "8.2.2"
+
+[dev-dependencies]
+tower = "0.5"

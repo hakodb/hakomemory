@@ -42,9 +42,10 @@ Variabel lain: `MEMORYBOX_MODEL_CACHE` (lokasi cache HF),
 Server **hanya bind 127.0.0.1 dan tanpa autentikasi** — jangan diekspos ke
 jaringan. Untuk akses jarak jauh pakai SSH tunnel / reverse proxy dengan auth.
 
-Verifikasi:
+Verifikasi build & endpoint:
 
 ```bash
+cargo test --workspace          # unit + integration test (mock embedder, offline)
 curl -s -X POST http://127.0.0.1:7412/v1/projects/open \
   -H 'content-type: application/json' \
   -d '{"path":"/path/ke/codebase"}'

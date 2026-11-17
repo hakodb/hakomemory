@@ -7,6 +7,7 @@ use mb_server::auth::{mint_token, AuthConfig, Claims};
 use mb_server::router;
 use mb_server::state::AppState;
 use serde_json::{json, Value};
+use sha2::Digest;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tower::ServiceExt;
@@ -58,6 +59,31 @@ async fn call(app: &Router, method: &str, path: &str, body: Value, tok: Option<&
         .await
         .unwrap();
     resp.status()
+}
+
+async fn call_json(
+    app: &Router,
+    method: &str,
+    path: &str,
+    body: Value,
+    tok: Option<&str>,
+) -> (StatusCode, Value) {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(path)
+        .header("content-type", "application/json");
+    if let Some(t) = tok {
+        req = req.header("authorization", format!("Bearer {t}"));
+    }
+    let resp = app
+        .clone()
+        .oneshot(req.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
+    (status, value)
 }
 
 fn app_with_auth(dir: &PathBuf) -> Router {
@@ -161,6 +187,77 @@ async fn path_di_luar_root_ditolak_dan_path_di_dalam_diizinkan() {
         )
         .await,
         StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn alias_terikat_user_dan_pid_diotorisasi_lewat_root() {
+    let dir = temp_root();
+    let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
+    let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
+    let app = app_with_auth(&dir);
+
+    // user A mendaftarkan alias "work" dengan path di root-nya
+    let tok_a = token("alice", &[], &[canonical.clone()], false);
+    let (status, body) = call_json(
+        &app,
+        "POST",
+        "/v1/projects/open",
+        json!({ "alias": "work", "path": canonical }),
+        Some(&tok_a),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["project_id"], pid);
+
+    // token A hanya punya root (tanpa projects) → alias + otorisasi lewat by_pid
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/projects/open",
+            json!({ "alias": "work" }),
+            Some(&tok_a)
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/retrieve",
+            json!({ "project_id": pid, "query": "x", "k": 1 }),
+            Some(&tok_a)
+        )
+        .await,
+        StatusCode::OK
+    );
+
+    // user B tidak bisa memakai alias milik A,也不能 menebak path di luar root-nya
+    let other = temp_root();
+    let tok_b = token("bob", &[], &[other.to_string_lossy().to_string()], false);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/projects/open",
+            json!({ "alias": "work" }),
+            Some(&tok_b)
+        )
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/retrieve",
+            json!({ "project_id": pid, "query": "x", "k": 1 }),
+            Some(&tok_b)
+        )
+        .await,
+        StatusCode::FORBIDDEN
     );
 }
 

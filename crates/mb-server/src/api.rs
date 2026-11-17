@@ -35,8 +35,11 @@ fn auth_err(code: StatusCode) -> (StatusCode, Json<serde_json::Value>) {
 
 #[derive(Deserialize)]
 pub struct ProjectsOpen {
-    /// path canonical project (klien mengirim dari ctx.location.project)
-    pub path: String,
+    /// path canonical project (kompatibel dengan klien lama)
+    pub path: Option<String>,
+    /// alias yang dipilih klien; path diputuskan server dari registry
+    #[serde(default)]
+    pub alias: Option<String>,
 }
 
 pub async fn projects_open(
@@ -44,11 +47,47 @@ pub async fn projects_open(
     State(state): State<Arc<AppState>>,
     Json(input): Json<ProjectsOpen>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let path = input.path.clone();
-    auth.require_path(&path).map_err(auth_err)?;
+    let sub = auth.sub.clone();
+    let (pid_resolved, path): (String, String) = if let Some(alias) = input.alias.as_deref() {
+        match state.resolve_alias(&sub, alias) {
+            Some(entry) => (entry.pid, entry.path),
+            None => {
+                let raw = input.path.clone().ok_or_else(|| {
+                    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "alias belum terdaftar; sertakan path untuk mendaftar" })))
+                })?;
+                auth.require_path(&raw).map_err(auth_err)?;
+                let canonical = std::fs::canonicalize(&raw)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or(raw);
+                let pid = project_id(&canonical);
+                state
+                    .register_project(&sub, Some(alias), &pid, &canonical)
+                    .map_err(err500)?;
+                (pid, canonical)
+            }
+        }
+    } else if let Some(raw) = input.path.clone() {
+        auth.require_path(&raw).map_err(auth_err)?;
+        let canonical = std::fs::canonicalize(&raw)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(raw);
+        let pid = project_id(&canonical);
+        state
+            .register_project(&sub, None, &pid, &canonical)
+            .map_err(err500)?;
+        (pid, canonical)
+    } else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "path atau alias wajib" })),
+        ));
+    };
+    // pastikan pid yang dipilih server memang diizinkan untuk user ini
+    state.authorize_project(&auth, &pid_resolved).map_err(auth_err)?;
     let app = state.clone();
+    let pid = pid_resolved;
     let res = tokio::task::spawn_blocking(move || {
-        let (pid, db) = app.store.open_project(&path)?;
+        let (_, db) = app.store.open_project(&path)?;
         assert!(db.await_quiescent(std::time::Duration::from_secs(600)), "recovery index harus selesai");
         // auto-watch (MEMORYBOX_WATCH=0 untuk mematikan)
         if std::env::var("MEMORYBOX_WATCH").as_deref() != Ok("0") && app.watches.ensure(&pid) {
@@ -81,7 +120,7 @@ pub async fn index_scan(
     State(state): State<Arc<AppState>>,
     Json(input): Json<IndexScan>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, path) = (input.project_id.clone(), input.path.clone());
@@ -110,7 +149,7 @@ pub async fn index_remove(
     State(state): State<Arc<AppState>>,
     Json(input): Json<IndexRemove>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let (pid, path) = (input.project_id.clone(), input.path.clone());
     let res = tokio::task::spawn_blocking(move || {
@@ -141,7 +180,7 @@ pub async fn index_status(
     State(state): State<Arc<AppState>>,
     Query(input): Query<IndexStatus>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let pid = input.project_id.clone();
     let res = tokio::task::spawn_blocking(move || {
@@ -174,7 +213,7 @@ pub async fn retrieve(
     State(state): State<Arc<AppState>>,
     Json(input): Json<Retrieve>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
@@ -220,7 +259,7 @@ pub async fn graph_context(
     State(state): State<Arc<AppState>>,
     Json(input): Json<GraphContext>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let (col, id) = input
         .seed
         .split_once('/')
@@ -278,7 +317,7 @@ pub async fn symbols_lookup(
     State(state): State<Arc<AppState>>,
     Json(input): Json<SymbolsLookup>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let (pid, name, k) = (input.project_id.clone(), input.name.clone(), input.k);
     let res = tokio::task::spawn_blocking(move || {
@@ -319,7 +358,7 @@ pub async fn memory_write(
     State(state): State<Arc<AppState>>,
     Json(input): Json<MemoryWrite>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let col = memory_col(&input.kind).map_err(err400)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
@@ -380,7 +419,7 @@ pub async fn memory_search(
     State(state): State<Arc<AppState>>,
     Json(input): Json<MemorySearch>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     // 0..3 koleksi memory sesuai kind (tanpa kind = semua)
     let cols: Vec<(String, String)> = match input.kind.as_deref() {
         Some(k) => vec![(memory_col(k).map_err(err400)?.to_string(), k.to_string())],
@@ -435,7 +474,7 @@ pub async fn memory_forget(
     State(state): State<Arc<AppState>>,
     Json(input): Json<MemoryForget>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    auth.require_project(&input.project_id).map_err(auth_err)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     let col = memory_col(&input.kind).map_err(err400)?;
     let store = state.store.clone();
     let (pid, id) = (input.project_id.clone(), input.id.clone());

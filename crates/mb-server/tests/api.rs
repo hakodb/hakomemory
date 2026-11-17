@@ -270,7 +270,7 @@ async fn bad_requests_are_rejected() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    // field wajib hilang → 422 dari axum Json extractor
+    // path/alias hilang → 400 (keduanya opsional di schema, tapi salah satu wajib)
     let (status, _) = call(
         &app,
         "POST",
@@ -278,7 +278,7 @@ async fn bad_requests_are_rejected() {
         json!({ "nope": true }),
     )
     .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 
     // index/status memakai query string, bukan body JSON
     let (status, _) = call(&app, "GET", "/v1/index/status", json!({})).await;

@@ -87,6 +87,45 @@
 - Watcher hidup per-proses — setelah restart server, aktif lagi saat
   `projects/open` dipanggil (plugin memanggil tiap sesi, jadi otomatis).
 
+### 0.7 Kajian upgrade hakodb v0.20.6 → v0.20.8 (teruji, diadopsi)
+
+**v0.20.7 (#210, fix #209):** create-time traverse backfill kini scan SEMUA
+shard. Dua gap berlapis diperbaiki: (1) doc yang ditulis sebelum
+`create_traverse_index` tak pernah masuk backlink map (tidak ada live IndexOp
+untuk di-replay); (2) race urutan create — backfill thread dari create
+sebelumnya membaca `tracked` asinkron; bila `create_edge_index(edges)` jalan
+sebelum `create_traverse_index(nodes)`, backfill edges melihat set targets
+yang belum di-track dan menjatuhkan semua ref secara silent. Gejala:
+`find_paths` mengembalikan `[]` ~20% flaky di engine terenkripsi.
+
+**v0.20.8 (#212):** memoize fetch doc per-walk di traverse expansion. Setelah
+backlink map lengkap (efek #209), tiap tetangga difetch 2× per ekspansi
+(backlink verify + edge hop) — bfs 65k → 38k qps. Memo melipatnya jadi satu
+fetch; entries tidak lintas-anchor sehingga semantik staleness tetap.
+
+**Verdict "regresi" BFS** (dicatat di PR #212 + RESULTS.md bench-lab):
+penurunan 63–66k → 35–37k qps BUKAN regresi — baseline lama mengukur
+backlink map yang SETENGAH KOSONG (race #209 menghapus baris edge pra-index
+di lane benchmark itu sendiri: respons n_0 4→8 baris, p50/call persis 2×,
+12µs→23µs). 0.20.7 memulihkan KEBENARAN data — qps turun karena kerja per
+call lebih banyak (data penuh). Memo #212 netral tanpa `via_edge`, disimpan
+untuk walk campuran via.
+
+**Dampak ke memory-box:**
+- `ensure_schema` kita membuat traverse index SEBELUM edge index dan SEMUA
+  index sebelum tulis pertama → kebetulan di sisi aman dari race #209.
+  v0.20.7 membuat urutan apa pun aman (hardening gratis).
+- Kita memakai `via_edge` → jalur memo #212 berlaku.
+- **Adopsi tervalidasi**: tag `v0.20.8` (9e1de90), API identik (diff hanya
+  internal engine.rs + test). POC wave-1: SEMUA LOLOS (hybrid RRF, KNN,
+  BFS, subgraph, pagerank, communities, persist-HNSW reopen 10 ms).
+  e2e server: retrieve 39–47 ms (baseline 37–44), graph 3 ms, write/watcher/
+  cleanup OK.
+
+**Bonus fix saat kaji**: `subgraph_json` mengembalikan doc utuh termasuk
+`emb` (384 float) per chunk → respons graph 79.7 KB. Server kini strip `emb`
+dari node sebelum dikirim → **7.5 KB (−90%)**.
+
 ### 0.2 Kendala yang dikunci
 
 1. **Hako::open harus inisialisasi rayon global PERTAMA** (engine memanggil

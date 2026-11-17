@@ -7,7 +7,7 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-hakodb = { git = "https://github.com/hakodb/hakodb", tag = "v0.20.6" }
+hakodb = { git = "https://github.com/hakodb/hakodb", tag = "v0.20.8" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

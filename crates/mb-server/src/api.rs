@@ -27,6 +27,14 @@ fn err400(e: anyhow::Error) -> (StatusCode, Json<serde_json::Value>) {
     (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() })))
 }
 
+fn require_admin(auth: &AuthContext) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if auth.admin {
+        Ok(())
+    } else {
+        Err(auth_err(StatusCode::FORBIDDEN))
+    }
+}
+
 /// Konversi kegagalan otorisasi ke respons API.
 fn auth_err(code: StatusCode) -> (StatusCode, Json<serde_json::Value>) {
     let msg = if code == StatusCode::FORBIDDEN { "forbidden" } else { "unauthorized" };
@@ -519,6 +527,51 @@ pub async fn memory_forget(
     if res.get("forbidden").and_then(|v| v.as_bool()).unwrap_or(false) {
         return Err(auth_err(StatusCode::FORBIDDEN));
     }
+    Ok(Json(res))
+}
+
+#[derive(Deserialize)]
+pub struct BackfillOwner {
+    pub project_id: String,
+    pub user_id: String,
+    /// episodic | semantic | procedural; tanpa ini = semua koleksi
+    pub kind: Option<String>,
+}
+
+/// Stamp `user_id` pada dokumen memory lama yang belum punya owner.
+/// Hanya admin. Dokumen tanpa user_id disembunyikan dari user biasa直到 backfill.
+pub async fn admin_backfill_owner(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<BackfillOwner>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(&auth)?;
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    let cols: Vec<String> = match input.kind.as_deref() {
+        Some(k) => vec![memory_col(k).map_err(err400)?.to_string()],
+        None => crate::store::MEMORY_COLLECTIONS.iter().map(|c| c.to_string()).collect(),
+    };
+    let store = state.store.clone();
+    let (pid, owner) = (input.project_id.clone(), input.user_id.clone());
+    let res = tokio::task::spawn_blocking(move || {
+        let db = store.get(&pid)?;
+        let mut stamped = 0usize;
+        for col in cols {
+            let q = hakodb::query::query::Query::new(&col).limit(100_000);
+            let rows = db.query(q)?;
+            for (id, mut doc) in rows {
+                if doc.get("user_id").is_none() {
+                    doc.insert("user_id", Value::String(owner.clone()));
+                    db.put(&col, &id, &doc)?;
+                    stamped += 1;
+                }
+            }
+        }
+        Ok::<_, anyhow::Error>(serde_json::json!({ "stamped": stamped }))
+    })
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
     Ok(Json(res))
 }
 

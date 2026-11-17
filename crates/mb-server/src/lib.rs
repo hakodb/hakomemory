@@ -28,6 +28,10 @@ pub fn router(app_state: Arc<AppState>) -> Router {
         .route("/v1/memory/write", axum::routing::post(api::memory_write))
         .route("/v1/memory/search", axum::routing::post(api::memory_search))
         .route("/v1/memory/forget", axum::routing::post(api::memory_forget))
+        .route(
+            "/v1/admin/backfill",
+            axum::routing::post(api::admin_backfill_owner),
+        )
         .layer(axum::middleware::from_fn(
             |req: axum::http::Request<axum::body::Body>,
              next: axum::middleware::Next| async move {

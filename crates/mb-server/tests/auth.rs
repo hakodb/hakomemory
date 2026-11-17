@@ -317,6 +317,56 @@ async fn memory_terisolasi_per_user() {
     );
 }
 
+#[tokio::test]
+async fn backfill_owner_hanya_admin_dan_menyembunyikan_legacy() {
+    let dir = temp_root();
+    let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
+    let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
+    let state = AppState::open_mock_with_auth(
+        &dir,
+        AuthConfig::Enabled { secret: SECRET.to_vec() },
+    )
+    .unwrap();
+    let app = router(state.clone());
+    let alice = token("alice", &[], &[canonical.clone()], false);
+    let bob = token("bob", &[], &[canonical.clone()], false);
+    let admin = token("admin", &[], &[], true);
+
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/projects/open",
+            json!({ "path": canonical }), Some(&alice)
+        ).await,
+        StatusCode::OK
+    );
+
+    // doc legacy: tanpa user_id, disisipkan langsung (bukan lewat API)
+    {
+        use hakodb::document::hako_doc::HakoDoc;
+        use hakodb::document::value::Value;
+        let db = state.store.get(&pid).unwrap();
+        let mut doc = HakoDoc::default();
+        doc.insert("text", Value::String("rahasia legacy tanpa owner".into()));
+        doc.insert("ts", Value::Int(1));
+        db.put("mem_semantic", "legacy-owner-1", &doc).unwrap();
+    }
+
+    let bf = json!({ "project_id": pid, "user_id": "alice", "kind": "semantic" });
+    assert_eq!(
+        call(&app, "POST", "/v1/admin/backfill", bf.clone(), Some(&bob)).await,
+        StatusCode::FORBIDDEN
+    );
+    let (status, out) = call_json(&app, "POST", "/v1/admin/backfill", bf, Some(&admin)).await;
+    assert_eq!(status, StatusCode::OK, "{out}");
+    assert!(out["stamped"].as_u64().unwrap() >= 1);
+
+    let body = json!({ "project_id": pid, "kind": "semantic", "query": "rahasia legacy", "k": 5 });
+    let (_, a) = call_json(&app, "POST", "/v1/memory/search", body.clone(), Some(&alice)).await;
+    assert!(a["hits"].as_array().unwrap().len() >= 1, "alice harus melihat after backfill: {a}");
+    let (_, b) = call_json(&app, "POST", "/v1/memory/search", body, Some(&bob)).await;
+    assert!(b["hits"].as_array().unwrap().is_empty(), "bob tidak boleh: {b}");
+}
+
 fn hex12(d: &[u8]) -> String {
     d.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }

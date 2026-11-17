@@ -342,7 +342,14 @@ pub fn scan(
 
     // ---- embed per batch 16 ----
     let mut chunk_ops: Vec<BatchMutation> = Vec::with_capacity(chunk_mutations.len());
-    for batch in chunk_mutations.chunks(16) {
+    // Ukuran batch embedding bisa disesuaikan untuk provider remote
+    // (mis. 96 untuk Cohere/Gemini) agar jumlah request API lebih sedikit.
+    let embed_batch = std::env::var("MEMORYBOX_EMBED_BATCH")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(16)
+        .clamp(1, 250);
+    for batch in chunk_mutations.chunks(embed_batch) {
         let inputs: Vec<String> = batch.iter().map(|(_, _, pt)| pt.clone()).collect();
         let embs = embedder.embed(&inputs)?;
         for (emb, (id, doc, _)) in embs.into_iter().zip(batch.iter()) {

@@ -463,3 +463,14 @@ Cohere `/v2/embed`, OpenAI `/v1/embeddings`, atau Gemini
 Teruji: 3 unit test + uji live ketiga provider memakai mock vendor dengan
 server 384→4d (write + search sukses). Benchmark dengan kredensial nyata
 masih terbuka.
+
+
+### 0.13 Benchmark NIM vs MiniLM + provider nim (teruji)
+
+- `mb-embed-adapter` mendapat provider `nim` (`nvidia/nemotron-3-embed-1b`,
+  2048d fixed, tanpa field `dimensions`), retry 429/5xx + throttle global,
+  dan `MEMORYBOX_EMBED_BATCH` di indexer.
+- Benchmark adil 24 soal: MiniLM ID 9/12 vs NIM 8/12; EN 8/12 vs 8/12.
+  Latensi 30–31 ms vs 445–575 ms. NIM tidak lebih baik → default tetap lokal.
+- Gemini 384d tertahan HTTP 429 berulang saat batch indexing; dicatat sebagai
+  keterbatasan rate limit, bukan bug adapter.

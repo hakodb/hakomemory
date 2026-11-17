@@ -109,3 +109,34 @@ mendukung sampai 4096, rekomendasi最终 adalah:
   re-embed; jangan menimpa `emb` lama.
 - Backend: lokal candle, HTTP self-hosted, atau adapter vendor—semuanya
   lewat `TextEmbedder` yang sudah ada.
+
+
+## 8. Benchmark nyata: NVIDIA NIM vs MiniLM lokal (2026-11-17)
+
+Kredensial NIM (`nvapi-...`) dipakai sementara untuk benchmark, tidak
+disimpan di repo. Model: `nvidia/nemotron-3-embed-1b`, fixed **2048d**
+(endpoints NVIDIA tidak menerima `dimensions` selain 2048; adapter `nim`
+sengaja tidak mengirim field tersebut). Gemini 384d tidak bisa diselesaikan
+karena API key kena HTTP 429 berulang pada batch indexing (satu request
+tunggal sukses → masalah rate limit, bukan format).
+
+Kondisi adil: repo sama (44 file, 211 chunk), server fresh, eval 24 soal
+(`scripts/eval-token.py`).
+
+| Metrik | MiniLM lokal 384d | NVIDIA NIM 2048d |
+|---|---|---|
+| hit@5 Indonesia | **9/12** | 8/12 |
+| hit@5 Inggris | 8/12 | 8/12 |
+| retrieve latency (5x) | **30–31 ms** | 445–575 ms |
+| hemat vs grep | 71–73% | 62–64% |
+| vektor/chunk | 384 float (1.5 KB) | 2048 float (8 KB) |
+
+Kesimpulan: **NIM tidak menaikkan recall** untuk codebase ini (ID justru
+turun 1), latency ≈15–19× lebih lambat karena RTT + API, dan index 5× lebih
+besar. Rekomendasi final: **pertahankan MiniLM lokal sebagai default**. NIM
+tetap tersedia sebagai opsi lewat `MEMORYBOX_ADAPTER_PROVIDER=nim` bila
+suatu hari dibutuhkan(model lain/kualitas berbeda), bukan untuk kasus ini.
+
+Perbaikan yang dihasilkan dari uji ini: retry backoff + throttle global di
+adapter, dan env `MEMORYBOX_EMBED_BATCH` (default 16; 96 dipakai saat uji)
+untuk menekan jumlah request API.

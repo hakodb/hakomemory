@@ -19,6 +19,7 @@ enum Provider {
     Cohere,
     OpenAi,
     Gemini,
+    Nim,
 }
 
 impl Provider {
@@ -27,6 +28,7 @@ impl Provider {
             "cohere" => Ok(Self::Cohere),
             "openai" => Ok(Self::OpenAi),
             "gemini" | "google" => Ok(Self::Gemini),
+            "nim" | "nvidia" => Ok(Self::Nim),
             other => Err(anyhow!("provider tidak dikenal: {other}")),
         }
     }
@@ -56,6 +58,7 @@ impl Config {
             Provider::Cohere => "embed-multilingual-light-v3.0",
             Provider::OpenAi => "text-embedding-3-small",
             Provider::Gemini => "gemini-embedding-001",
+            Provider::Nim => "nvidia/nemotron-3-embed-1b",
         };
         let model = std::env::var("MEMORYBOX_ADAPTER_MODEL").unwrap_or_else(|_| default_model.into());
         let dim: u32 = std::env::var("MEMORYBOX_ADAPTER_DIM")
@@ -70,6 +73,7 @@ impl Config {
                 Provider::Cohere => "https://api.cohere.com".into(),
                 Provider::OpenAi => "https://api.openai.com".into(),
                 Provider::Gemini => "https://generativelanguage.googleapis.com/v1beta".into(),
+                Provider::Nim => "https://integrate.api.nvidia.com".into(),
             })
             .trim_end_matches('/')
             .to_string();
@@ -88,17 +92,52 @@ impl Config {
     }
 }
 
-fn post_json(url: &str, headers: &[(&str, String)], body: &Value) -> Result<Value> {
-    let mut req = ureq::post(url).header("Content-Type", "application/json");
-    for (name, value) in headers {
-        req = req.header(*name, value.as_str());
+/// Batasi laju request ke vendor (default 6 dtk ≈ 10 RPM untuk tier free).
+static LAST_CALL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+fn throttle() {
+    let interval_ms: u64 = std::env::var("MEMORYBOX_ADAPTER_MIN_INTERVAL_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(6000);
+    if interval_ms == 0 {
+        return;
     }
-    let response = req.send_json(body).map_err(|e| match e {
-        ureq::Error::StatusCode(code) => anyhow!("vendor HTTP {code}"),
-        other => anyhow!("vendor request: {other}"),
-    })?;
-    let text = response.into_body().read_to_string()?;
-    serde_json::from_str(&text).map_err(|e| anyhow!("vendor respons bukan JSON: {e}: {}", clip(&text)))
+    let interval = std::time::Duration::from_millis(interval_ms);
+    let mut last = LAST_CALL.lock().unwrap();
+    if let Some(prev) = *last {
+        if let Some(wait) = interval.checked_sub(prev.elapsed()) {
+            std::thread::sleep(wait);
+        }
+    }
+    *last = Some(std::time::Instant::now());
+}
+
+fn post_json(url: &str, headers: &[(&str, String)], body: &Value) -> Result<Value> {
+    let mut attempt = 0usize;
+    loop {
+        throttle();
+        let mut req = ureq::post(url).header("Content-Type", "application/json");
+        for (name, value) in headers {
+            req = req.header(*name, value.as_str());
+        }
+        match req.send_json(body) {
+            Ok(response) => {
+                let text = response.into_body().read_to_string()?;
+                return serde_json::from_str(&text)
+                    .map_err(|e| anyhow!("vendor respons bukan JSON: {e}: {}", clip(&text)));
+            }
+            Err(ureq::Error::StatusCode(code)) if (code == 429 || code >= 500) && attempt < 8 => {
+                let secs = [2u64, 4, 8, 16, 30, 45, 60, 60][attempt];
+                let delay = std::time::Duration::from_secs(secs);
+                eprintln!("vendor HTTP {code}, retry {}/8 dalam {:?}", attempt + 1, delay);
+                std::thread::sleep(delay);
+                attempt += 1;
+            }
+            Err(ureq::Error::StatusCode(code)) => return Err(anyhow!("vendor HTTP {code}")),
+            Err(other) => return Err(anyhow!("vendor request: {other}")),
+        }
+    }
 }
 
 fn clip(s: &str) -> String {
@@ -109,8 +148,9 @@ fn clip(s: &str) -> String {
 fn forward(cfg: &Config, texts: &[String], role: &str) -> Result<Vec<Vec<f32>>> {
     let raw = match cfg.provider {
         Provider::Cohere => forward_cohere(cfg, texts, role)?,
-        Provider::OpenAi => forward_openai(cfg, texts)?,
+        Provider::OpenAi => forward_openai(cfg, texts, true)?,
         Provider::Gemini => forward_gemini(cfg, texts, role)?,
+        Provider::Nim => forward_openai(cfg, texts, false)?,
     };
     if raw.len() != texts.len() {
         return Err(anyhow!(
@@ -167,12 +207,14 @@ fn forward_cohere(cfg: &Config, texts: &[String], role: &str) -> Result<Vec<Vec<
     arr.iter().map(|v| as_f32_vec(v)).collect()
 }
 
-fn forward_openai(cfg: &Config, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-    let body = json!({
+fn forward_openai(cfg: &Config, texts: &[String], send_dimensions: bool) -> Result<Vec<Vec<f32>>> {
+    let mut body = json!({
         "model": cfg.model,
         "input": texts,
-        "dimensions": cfg.dim,
     });
+    if send_dimensions {
+        body["dimensions"] = json!(cfg.dim);
+    }
     let url = format!("{}/v1/embeddings", cfg.base);
     let value = post_json(
         &url,

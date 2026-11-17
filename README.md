@@ -51,7 +51,7 @@ docs/           design log + auth assessment
 - [x] Model-agnostic embeddings: persisted `EmbeddingSpec` (384–4096d), remote
       HTTP embedder backend, hard error on dimension mismatch
 - [x] Vendor adapter: `mb-embed-adapter` bridges internal HTTP to Cohere,
-      OpenAI, or Gemini with query/document roles
+      OpenAI, Gemini, or NVIDIA NIM with query/document roles
 - [x] Agent guidance: skill, read-only subagent, `AGENTS.md`
 - [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
@@ -98,7 +98,7 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_EMBED_DIM` | required if URL | vector dimension of the HTTP embedder |
 | `MEMORYBOX_EMBED_TOKEN` | unset | bearer token for the HTTP embedder |
 | `MEMORYBOX_EMBED_MODEL` | `http-embedder` | model id recorded in project spec |
-| `MEMORYBOX_ADAPTER_PROVIDER` | — | adapter: `cohere\|openai\|gemini` |
+| `MEMORYBOX_ADAPTER_PROVIDER` | — | adapter: `cohere\|openai\|gemini\|nim` |
 | `MEMORYBOX_ADAPTER_API_KEY` | — | vendor API key (adapter process only) |
 | `MEMORYBOX_ADAPTER_DIM` | `384` | output dimension |
 | `MEMORYBOX_ADAPTER_MODEL` | per provider | vendor model id |

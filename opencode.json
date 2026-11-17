@@ -1,0 +1,4 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["/home/riza/memory-box/plugins/memory-box"]
+}

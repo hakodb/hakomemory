@@ -50,3 +50,16 @@ Semua jaringan gagal-aman: kalau server mati, plugin pasif dan sesi tetap jalan.
   (di-gitignore; cara ambil: unduh tarball npm `@opencode/plugin`).
 - Indeks codebase diisi via `/v1/index/scan` (sekarang manual; nanti otomatis
   oleh server watcher + tree-sitter).
+
+## Uji distill end-to-end
+
+`bash scripts/test-distill-e2e.sh` menguji rantai penuh:
+compaction → snapshot episodic/semantic → tulis `mem_procedural` → injeksi
+`# Pelajaran tersimpan` di sesi berikutnya.
+
+Saat kuota `ctx.generate.text` habis, set `MEMORYBOX_DISTILL_MODE=mock`
+(skrip sudah melakukannya) — distill memakai ekstraksi bullet deterministik
+tanpa LLM, jadi plumbing tetap tervalidasi. Saat kuota/model tersedia, jalankan
+sesi normal dengan `MEMORYBOX_DISTILL_MODEL=providerID/modelID` untuk
+mengarahkan generate ke model dengan kuota (boleh beda dari model sesi).
+Tool `memory.compactionTest` hanya aktif dengan `MEMORYBOX_TEST_TOOLS=1`.

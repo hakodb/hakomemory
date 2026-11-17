@@ -95,12 +95,38 @@ export default {
 
     /** Distilasi transkrip → pelajaran prosedural (self-learning skill). */
     const distill = async (tail) => {
+      // model distill bisa diarahkan via env (format providerID/modelID)
+      // agar tidak tergantung model sesi — penting saat kuota model
+      // sesi habis atau model sesi terlalu besar untuk tugas ini.
+      const raw = String(globalThis.process?.env?.MEMORYBOX_DISTILL_MODEL ?? "").trim()
+      const modelOpt = raw.includes("/") && !raw.startsWith("/")
+        ? (() => {
+            const i = raw.indexOf("/")
+            return { providerID: raw.slice(0, i), id: raw.slice(i + 1) }
+          })()
+        : undefined
       try {
+        // MODE MOCK: uji seluruh rantai (compaction → tulis → injeksi)
+        // tanpa LLM — berguna saat kuota generate habis. Output tetap
+        // berbentuk bullet agar jalur penyimpanan identik dengan mode LLM.
+        if (String(globalThis.process?.env?.MEMORYBOX_DISTILL_MODE ?? "") === "mock") {
+          const lines = tail
+            .split("\n")
+            .map((l) => l.trim())
+            .filter((l) => l.length > 20 && !l.startsWith("#"))
+            .slice(0, 6)
+            .map((l) => "- " + l.slice(0, 240))
+          const text = lines.join("\n").slice(0, 2000)
+          if (!text) return { saved: false, text }
+          await remember("procedural", text, { source: "compaction-distill-mock", ts: Date.now() })
+          return { saved: true, text }
+        }
         // runtime 2.0.24: ctx.experimental hanya punya terminal;
         // generate.text tersedia sebagai ctx.generate.text (alias top-level).
         const gen = ctx.experimental?.generate?.text ?? ctx.generate?.text
         if (!gen) return { saved: false, error: "generate.text tidak tersedia di runtime" }
         const g = await gen({
+          ...(modelOpt ? { model: modelOpt } : {}),
           prompt:
             "Kamu mengekstrak 'pelajaran' dari sesi coding untuk memory jangka panjang.\n" +
             "Dari transkrip berikut, tulis HANYA keputusan/pola/langkah yang bisa dipakai ulang di masa depan.\n" +
@@ -118,7 +144,7 @@ export default {
         })
         return { saved: true, text }
       } catch (e) {
-        return { saved: false, error: String(e) }
+        return { saved: false, error: String(e) + " model=" + JSON.stringify(modelOpt) }
       }
     }
 
@@ -338,6 +364,20 @@ export default {
           return { content: `${header}\n${lines.join("\n")}` }
         },
       })
+
+      // [UJI] pemicu compaction manual (aktif hanya dengan MEMORYBOX_TEST_TOOLS=1)
+      if (String(globalThis.process?.env?.MEMORYBOX_TEST_TOOLS ?? "") === "1") {
+        editor.add({
+          name: "compactionTest",
+          description: "[UJI] Memicu compaction sesi secara manual untuk menguji hook compaction memory-box.",
+          input: { type: "object", properties: {}, additionalProperties: false },
+          options: { namespace: "memory", codemode: true },
+          execute: async (_input, context) => {
+            await ctx.session.compact({ sessionID: context.sessionID })
+            return { content: "compaction diminta" }
+          },
+        })
+      }
     })
   },
 }

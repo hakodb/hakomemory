@@ -168,6 +168,40 @@ pooling, tidak gated, ~470 MB):
 
 
 
+### 0.9 Uji distill end-to-end di tengah kuota LLM habis
+
+Masalah: hook compaction memanggil `ctx.generate.text` untuk merangkum
+pelajaran. Di box ini kuota **generate** model free habis (chat sesi masih
+jalan) — semua model free (`hy4`, `deepseek-v4.1`, `flint-40b`,
+`inkling-2-small`, …) mengembalikan `Generate.UnavailableError`. Ini blocker
+lingkungan, bukan kode.
+
+Dua rute uji:
+
+1. **Rute LLM asli** (saat kuota tersedia / model berbayar). Plugin kini
+   menerima `MEMORYBOX_DISTILL_MODEL=providerID/modelID` — diteruskan sebagai
+   opsi `model` ke `ctx.generate.text` (divalidasi: error menyertakan
+   `model={"providerID":"opencode","id":"inkling-2-small-free"}`). Jadi model
+   distill bisa berbeda dari model sesi. JalankanTool `memory.compactionTest`
+   (tidak dipanggil) dengan env `MEMORYBOX_TEST_TOOLS=1` dan
+   `MEMORYBOX_DISTILL_MODEL=<model-berkuota>`, verifikasi `mem_procedural`
+   dan injeksi seperti di bawah.
+2. **Rute mock (dipakai sekarang)**: `MEMORYBOX_DISTILL_MODE=mock` mengganti
+   panggilan LLM dengan ekstraksi bullet deterministik dari transkrip —
+   rantai `compaction → snapshot semantic → tulis mem_procedural → injeksi
+   blok "# Pelajaran tersimpan" ke sesi berikutnya` diuji penuh tanpa LLM.
+
+Skrip: `bash scripts/test-distill-e2e.sh` (env `MARK`, `MODEL`, `SVR`).
+Alur: sesi 1 dengan marker unik → `memory.compactionTest` → cek marker di
+`/v1/memory/search kind=procedural` → sesi baru → cek marker muncul dari
+blok injeksi. **Hasil: LULUS** (marker `MARKER-UJI-...` ditemukan di
+`mem_procedural` dan muncul di jawaban sesi baru).
+
+Catatan: plugin terdaftar lewat `opencode.json` project; `ctx.session.compact`
+tersedia di runtime 2.0.24 dan memicu hook `compaction` (dokumentasi resmi).
+
+
+
 ### 0.2 Kendala yang dikunci
 
 1. **Hako::open harus inisialisasi rayon global PERTAMA** (engine memanggil

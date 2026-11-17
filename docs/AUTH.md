@@ -162,14 +162,20 @@ Auth + isolation have been implemented in phases:
    an arbitrary `pid`.
 4. Memory docs are stamped with `user_id` (+ optional `agent_id`/`session_id`);
    search filters by owner and `forget` rejects another user's doc. Legacy
-   documents without `user_id` are hidden from non-admin users — a backfill
-   tool is still a follow-up.
+   documents without `user_id` are hidden from non-admin users until stamped
+   via `POST /v1/admin/backfill` (admin only).
 5. Plugin and `mb-mcp` send `Authorization: Bearer` from `MEMORYBOX_TOKEN`
    (or `options.token`) and can open by `MEMORYBOX_ALIAS` / `options.alias`.
+   Tokens carry a `jti` and can be revoked with `POST /v1/admin/revoke`
+   (rotation = mint a new token with `mb-token`, then revoke the old one).
+6. `MEMORYBOX_RATE_PER_MIN` sets a per-user fixed-window (60 s) limit;
+   exceeding it returns HTTP 429. `/healthz` is exempt.
 
-Tests: 6 auth integration tests + 5 endpoint tests + 4 MCP unit tests +
+Tests: 9 auth integration tests + 5 endpoint tests + 4 MCP unit tests +
 2 parser tests — all pass via `cargo test --workspace`.
 
-Known limitation: `hybrid_search` has no server-side field filter, so owner
-filtering is applied to an enlarged candidate set (k×5). This is correct but
-may return fewer than `k` hits for users with sparse memory.
+Known limitation: `hybrid_search` v0.20.8 has no server-side field filter, so
+owner filtering is applied to an enlarged candidate set (k×5). This is correct
+but may return fewer than `k` hits for users with sparse memory. The engine-side
+fix (`hybrid_search_filtered` using the existing `HnswIndex::search_filtered`)
+and other GraphRAG recommendations are documented in `/home/riza/hakodb_issue_new.md`.

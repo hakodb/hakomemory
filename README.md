@@ -43,6 +43,8 @@ docs/           design log + auth assessment
 - [x] Thin MCP adapter (`mb-mcp`, stdio JSON-RPC)
 - [x] Token-saving evaluation vs grep/read ([scripts/eval-token.py](scripts/eval-token.py))
 - [x] Automated integration tests for all `/v1/*` endpoints
+- [x] Multi-user auth: signed tokens, project/path scope, per-user memory,
+      alias, backfill, revocation, rate limit
 - [x] Agent guidance: skill, read-only subagent, `AGENTS.md`
 - [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
@@ -84,6 +86,7 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_AUTH_SECRET` | unset | HMAC secret; unset = legacy open mode |
 | `MEMORYBOX_TOKEN` | unset | token used by plugin / MCP clients |
 | `MEMORYBOX_ALIAS` | unset | project alias sent by plugin / MCP |
+| `MEMORYBOX_RATE_PER_MIN` | `0` | per-user request limit (0 = disabled) |
 | `MEMORYBOX_URL` | `http://127.0.0.1:7412` | server URL (plugin / MCP) |
 | `MEMORYBOX_PROJECT` | session directory | codebase path (plugin / MCP) |
 

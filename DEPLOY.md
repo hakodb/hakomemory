@@ -178,3 +178,20 @@ export MEMORYBOX_ALIAS=work
 the server validates the path against the token roots and computes the project
 id itself. Memory is stamped with `user_id` and filtered per user. Legacy docs
 without `user_id` are visible to admin tokens only. See `docs/AUTH.md`.
+
+### Operational commands
+
+```bash
+# rotate: mint a new token, then revoke the old one
+MEMORYBOX_AUTH_SECRET=<secret> ./target/release/mb-token \
+  --sub alice --jti alice-2026-02 --roots /home/alice/proj --days 30
+curl -X POST http://127.0.0.1:7412/v1/admin/revoke -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>' -d '{"jti":"alice-2026-01"}'
+
+# backfill legacy memory docs (missing user_id) for one user
+curl -X POST http://127.0.0.1:7412/v1/admin/backfill -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <ADMIN_TOKEN>' \
+  -d '{"project_id":"<pid>","user_id":"alice"}'
+```
+
+Optional: `MEMORYBOX_RATE_PER_MIN=300` limits each user to 300 requests/minute.

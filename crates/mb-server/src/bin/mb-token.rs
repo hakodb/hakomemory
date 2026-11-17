@@ -1,0 +1,74 @@
+//! Mint token akses memory-box (HMAC-SHA256).
+//!
+//! Secret dibaca dari MEMORYBOX_AUTH_SECRET (jangan lewat argv).
+//! Contoh:
+//!   MEMORYBOX_AUTH_SECRET=rahasia mb-token --sub alice \
+//!     --projects 830d232f9c86 --roots /home/alice/proj --days 30
+
+use anyhow::{anyhow, Result};
+use mb_server::auth::{mint_token, Claims};
+
+fn next(args: &[String], i: &mut usize, flag: &str) -> Result<String> {
+    *i += 1;
+    args.get(*i)
+        .cloned()
+        .ok_or_else(|| anyhow!("{flag} butuh nilai"))
+}
+
+fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let secret = std::env::var("MEMORYBOX_AUTH_SECRET")
+        .map_err(|_| anyhow!("MEMORYBOX_AUTH_SECRET belum diset"))?;
+    let mut sub = String::new();
+    let mut projects = Vec::new();
+    let mut roots = Vec::new();
+    let mut days = 30u64;
+    let mut admin = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--sub" => sub = next(&args, &mut i, "--sub")?,
+            "--projects" => {
+                projects = next(&args, &mut i, "--projects")?
+                    .split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect()
+            }
+            "--roots" => {
+                roots = next(&args, &mut i, "--roots")?
+                    .split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect()
+            }
+            "--days" => days = next(&args, &mut i, "--days")?.parse()?,
+            "--admin" => admin = true,
+            "--help" => {
+                println!("{}", include_str!("TOKEN_HELP.txt"));
+                return Ok(());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if sub.is_empty() && !admin {
+        return Err(anyhow!("--sub wajib (kecuali --admin)"));
+    }
+    let exp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs()
+        + days * 86400;
+    let token = mint_token(
+        &Claims {
+            sub: if sub.is_empty() { "admin".into() } else { sub },
+            roots,
+            projects,
+            exp,
+            admin,
+        },
+        secret.as_bytes(),
+    )?;
+    println!("{token}");
+    Ok(())
+}

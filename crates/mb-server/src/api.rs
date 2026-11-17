@@ -1,10 +1,11 @@
 //! Handler HTTP /v1.
 
+use crate::auth::AuthContext;
 use crate::indexer;
 use crate::state::AppState;
 use crate::store::project_id;
 use anyhow::{anyhow, Result};
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json};
 use hakodb::document::hako_doc::HakoDoc;
@@ -26,6 +27,12 @@ fn err400(e: anyhow::Error) -> (StatusCode, Json<serde_json::Value>) {
     (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() })))
 }
 
+/// Konversi kegagalan otorisasi ke respons API.
+fn auth_err(code: StatusCode) -> (StatusCode, Json<serde_json::Value>) {
+    let msg = if code == StatusCode::FORBIDDEN { "forbidden" } else { "unauthorized" };
+    (code, Json(serde_json::json!({ "error": msg })))
+}
+
 #[derive(Deserialize)]
 pub struct ProjectsOpen {
     /// path canonical project (klien mengirim dari ctx.location.project)
@@ -33,10 +40,12 @@ pub struct ProjectsOpen {
 }
 
 pub async fn projects_open(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<ProjectsOpen>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let path = input.path.clone();
+    auth.require_path(&path).map_err(auth_err)?;
     let app = state.clone();
     let res = tokio::task::spawn_blocking(move || {
         let (pid, db) = app.store.open_project(&path)?;
@@ -68,9 +77,11 @@ pub struct IndexScan {
 }
 
 pub async fn index_scan(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<IndexScan>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, path) = (input.project_id.clone(), input.path.clone());
@@ -95,9 +106,11 @@ pub struct IndexRemove {
 
 /// Hapus semua chunk/simbol/edge milik satu file (file terhapus).
 pub async fn index_remove(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<IndexRemove>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let (pid, path) = (input.project_id.clone(), input.path.clone());
     let res = tokio::task::spawn_blocking(move || {
@@ -124,9 +137,11 @@ pub struct IndexStatus {
 }
 
 pub async fn index_status(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Query(input): Query<IndexStatus>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let pid = input.project_id.clone();
     let res = tokio::task::spawn_blocking(move || {
@@ -155,9 +170,11 @@ fn default_k() -> usize {
 }
 
 pub async fn retrieve(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<Retrieve>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
@@ -199,9 +216,11 @@ fn default_hops() -> usize {
 }
 
 pub async fn graph_context(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<GraphContext>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let (col, id) = input
         .seed
         .split_once('/')
@@ -255,9 +274,11 @@ pub struct SymbolsLookup {
 
 /// Resolve nama simbol → id + lokasi (untuk seed graph dari plugin).
 pub async fn symbols_lookup(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<SymbolsLookup>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let store = state.store.clone();
     let (pid, name, k) = (input.project_id.clone(), input.name.clone(), input.k);
     let res = tokio::task::spawn_blocking(move || {
@@ -294,9 +315,11 @@ pub struct MemoryWrite {
 }
 
 pub async fn memory_write(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<MemoryWrite>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let col = memory_col(&input.kind).map_err(err400)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
@@ -353,9 +376,11 @@ pub struct MemorySearch {
 }
 
 pub async fn memory_search(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<MemorySearch>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     // 0..3 koleksi memory sesuai kind (tanpa kind = semua)
     let cols: Vec<(String, String)> = match input.kind.as_deref() {
         Some(k) => vec![(memory_col(k).map_err(err400)?.to_string(), k.to_string())],
@@ -406,9 +431,11 @@ pub struct MemoryForget {
 }
 
 pub async fn memory_forget(
+    Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
     Json(input): Json<MemoryForget>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    auth.require_project(&input.project_id).map_err(auth_err)?;
     let col = memory_col(&input.kind).map_err(err400)?;
     let store = state.store.clone();
     let (pid, id) = (input.project_id.clone(), input.id.clone());

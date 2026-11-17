@@ -1,0 +1,12 @@
+Usage: mb-token [options]
+
+Mint an HMAC-signed memory-box access token. The secret is read from
+MEMORYBOX_AUTH_SECRET (never pass it on the command line).
+
+Options:
+  --sub NAME       user identity (required unless --admin)
+  --projects IDS   comma-separated project ids the token may access
+  --roots PATHS    comma-separated canonical path prefixes allowed to open
+  --days N         validity in days (default 30)
+  --admin          bootstrap/admin token (bypasses project checks)
+  --help           show this text

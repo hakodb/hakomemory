@@ -1,6 +1,7 @@
 //! memory-box server: router + state untuk dipakai binary dan integration test.
 
 pub mod api;
+pub mod auth;
 pub mod embed;
 pub mod indexer;
 pub mod parser;
@@ -8,6 +9,7 @@ pub mod state;
 pub mod store;
 pub mod watcher;
 
+use axum::response::IntoResponse;
 use axum::Router;
 use state::AppState;
 use std::sync::Arc;
@@ -35,6 +37,23 @@ pub fn router(app_state: Arc<AppState>) -> Router {
                 let res = next.run(req).await;
                 tracing::info!(%method, %path, status = %res.status(), ms = started.elapsed().as_millis(), "request");
                 res
+            },
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            |axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+             mut req: axum::http::Request<axum::body::Body>,
+             next: axum::middleware::Next| async move {
+                if req.uri().path() == "/healthz" {
+                    return next.run(req).await;
+                }
+                match state.auth.authenticate(req.headers()) {
+                    Ok(ctx) => {
+                        req.extensions_mut().insert(ctx);
+                        next.run(req).await
+                    }
+                    Err(code) => code.into_response(),
+                }
             },
         ))
         .with_state(app_state)

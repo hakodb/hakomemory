@@ -1,6 +1,7 @@
 //! State aplikasi: dibuka HAKO-DULU (pemilik pool rayon global), baru
 //! embedder candle — urutan ini terkunci, lihat docs/PLAN.md §0.2.
 
+use crate::auth::AuthConfig;
 use crate::embed::SharedEmbedder;
 use crate::store::ProjectStore;
 use crate::watcher;
@@ -18,6 +19,7 @@ pub struct AppState {
     pub store: Arc<ProjectStore>,
     pub embedder: Arc<SharedEmbedder>,
     pub watches: watcher::WatchRegistry,
+    pub auth: Arc<AuthConfig>,
 }
 
 impl AppState {
@@ -44,17 +46,30 @@ impl AppState {
                 crate::store::DIM
             );
         }
-        Ok(Self::with_embedder(store, embedder))
+        Ok(Self::with_embedder(store, embedder, Arc::new(AuthConfig::from_env())))
     }
 
     /// Konstruktor test: embedder mock, tanpa model/unduhan.
     pub fn open_mock(data_dir: &Path) -> Result<Arc<Self>> {
-        let store = Arc::new(ProjectStore::new(data_dir.to_path_buf()));
-        let embedder = Arc::new(SharedEmbedder::mock(crate::store::DIM));
-        Ok(Self::with_embedder(store, embedder))
+        Self::open_mock_with_auth(data_dir, AuthConfig::Disabled)
     }
 
-    fn with_embedder(store: Arc<ProjectStore>, embedder: Arc<SharedEmbedder>) -> Arc<Self> {
-        Arc::new(Self { store, embedder, watches: watcher::WatchRegistry::default() })
+    pub fn open_mock_with_auth(data_dir: &Path, auth: AuthConfig) -> Result<Arc<Self>> {
+        let store = Arc::new(ProjectStore::new(data_dir.to_path_buf()));
+        let embedder = Arc::new(SharedEmbedder::mock(crate::store::DIM));
+        Ok(Self::with_embedder(store, embedder, Arc::new(auth)))
+    }
+
+    fn with_embedder(
+        store: Arc<ProjectStore>,
+        embedder: Arc<SharedEmbedder>,
+        auth: Arc<AuthConfig>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            store,
+            embedder,
+            watches: watcher::WatchRegistry::default(),
+            auth,
+        })
     }
 }

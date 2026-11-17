@@ -27,3 +27,9 @@ notify = "8.2.2"
 
 [dev-dependencies]
 tower = "0.5"
+
+[dependencies.hmac]
+version = "0.12"
+
+[dependencies.base64]
+version = "0.22"

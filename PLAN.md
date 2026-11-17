@@ -126,6 +126,48 @@ untuk walk campuran via.
 `emb` (384 float) per chunk → respons graph 79.7 KB. Server kini strip `emb`
 dari node sebelum dikirim → **7.5 KB (−90%)**.
 
+### 0.8 Re-resolusi edge lintas-file + model multibahasa (teruji)
+
+**Edge lintas-file.** Dua masalah inkremental yang sebelumnya diketahui:
+(a) rescan file tunggal kehilangan edge keluar lintas-file (resolusi hanya
+melihat simbol batch); (b) edge masuk ke file callee yang berubah jadi
+dangling. Solusi — tiga bagian:
+- Edge id kini stabil by NAME: hash(caller|callee_name|call) — target boleh
+  pindah file tanpa mengubah id edge; doc edge membawa `callee` + `to_path`.
+- `resolve_callee` dengan fallback DB: nama tidak ada di batch → query
+  `symbols name==` (prefer path caller) → edge keluar lintas-file tetap
+  terbentuk saat rescan file tunggal.
+- `settle_edges` PASCA-TULIS: rekonsiliasi edge milik rel batch terhadap
+  state DB final — caller hilang → hapus; callee hilang → hapus; callee
+  pindah file → rewrite (_to, to_path). Dipanggil setelah write_batch di
+  scan() dan remove_rel → **bebas race urutan file** dalam drain watcher
+  (resolusi melihat hasil tulisan seluruh batch, bukan state antara).
+- `stale_deletes` edge: hapus format lama (tanpa `callee`) + yang tidak
+  diregenerasi batch; migrasi format lewat rescan penuh (settled=7 saat
+  rescan migrasi).
+
+Teruji live (tanpa menyentuh file caller):
+- pindah `helper_x` lib_a.rs → lib_c.rs: edge ikut (_to lib_c, to_path
+  ter-update) hanya dari event watcher kedua file itu.
+- hapus lib_c.rs: edge call terhapus. (Edge "sisa" yang tampak di subgraph
+  adalah pasangan symbol→chunk ref, bukan call.)
+
+**Model multibahasa.** MiniLM-L6 English-primary membuat recall Indonesia
+lemah (eval §0.6: ID 4/12 vs EN 10/12). Diganti default ke
+`paraphrase-multilingual-MiniLM-L12-v2` (384 dim, BERT standar + mean
+pooling, tidak gated, ~470 MB):
+- Sanity: paraphrase lintas-bahasa ID↔EN 0.91, ID↔ID 0.76, beda topik ≈ 0.
+- `MEMORYBOX_MODEL=multi|en|<hf-repo>` (default multi); cache model kini
+  `~/.cache/huggingface/hub` (dipakai bersama antar proses, override
+  `MEMORYBOX_MODEL_CACHE`) — dulu per-data-dir sehingga tiap server
+  mengunduh ulang 470 MB.
+- Embedding model-specific → ganti model WAJIB wipe data + rescan penuh.
+- Hasil eval ulang: **ID 8/12, EN 8/12** (seimbang; sebelumnya 4/10) —
+  hemat 58–69%. Latensi retrieve justru turun: 39–47 ms → **29–31 ms**.
+- Contoh sanity di `crates/mb-embed/examples/sanity.rs`.
+
+
+
 ### 0.2 Kendala yang dikunci
 
 1. **Hako::open harus inisialisasi rayon global PERTAMA** (engine memanggil

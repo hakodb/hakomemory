@@ -12,6 +12,19 @@ use hf_hub::api::sync::{Api, ApiBuilder};
 use tokenizers::Tokenizer;
 
 pub const MINILM_L6_V2: &str = "sentence-transformers/all-MiniLM-L6-v2";
+/// Model multibahasa (Indonesia didukung baik) — dim 384 juga, arsitektur
+/// BERT standar (mean pooling), tidak gated di HF.
+pub const MINILM_MULTI: &str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2";
+
+/// Resolusi model dari env: `MEMORYBOX_MODEL=multi|en|<repo-id-hf>`.
+/// Default `multi` (bilingual); `en` = all-MiniLM-L6-v2 untuk repo full-English.
+pub fn model_from_env() -> String {
+    match std::env::var("MEMORYBOX_MODEL").as_deref() {
+        Ok("en") => MINILM_L6_V2.to_string(),
+        Ok("multi") | Err(_) => MINILM_MULTI.to_string(),
+        Ok(other) => other.to_string(),
+    }
+}
 
 pub struct Embedder {
     model: BertModel,

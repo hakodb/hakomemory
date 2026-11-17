@@ -41,7 +41,7 @@ const SKIP_DIRS: [&str; 10] = [
 const SKIP_FILES: [&str; 3] = [".lock", ".sum", ".snap"];
 
 /// Koleksi yang membersihkan berdasar field `path`.
-const PATHED_COLLECTIONS: [&str; 3] = ["chunks", "symbols", "edges"];
+const PATHED_COLLECTIONS: [&str; 2] = ["chunks", "symbols"];
 
 pub fn is_source(path: &Path) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
@@ -143,10 +143,68 @@ pub struct ScanReport {
     pub edges: usize,
     /// jumlah doc lama yang dihapus (stale)
     pub removed: usize,
+    /// jumlah edge yang direkonsiliasi (rewrite/hapus) pasca-tulis
+    pub settled: usize,
 }
 
 /// id yang harus dipertahankan per rel per koleksi — dasar cleanup.
 type KeepMap = HashMap<String, HashMap<&'static str, HashSet<String>>>;
+
+/// Referensi → doc_id (Value::Reference).
+fn ref_id(v: Option<&Value>) -> Option<String> {
+    match v {
+        Some(Value::Reference { doc_id, .. }) => Some(doc_id.clone()),
+        _ => None,
+    }
+}
+
+/// Resolusi nama callee → (path callee, sym id).
+/// Prioritas: file yang sama dengan caller (`fi`), lalu `prefer_path`,
+/// lalu kandidat pertama. Batch tidak punya nama itu → fallback DB
+/// (simbol milik file lain yang tidak ikut di-scan).
+fn resolve_callee(
+    db: &Hako,
+    by_name: &HashMap<String, Vec<(usize, String, String)>>,
+    fi: usize,
+    prefer_path: Option<&str>,
+    name: &str,
+) -> Option<(String, String)> {
+    if let Some(cands) = by_name.get(name) {
+        if let Some((_, rel, id)) = cands.iter().find(|(cfi, _, _)| *cfi == fi) {
+            return Some((rel.clone(), id.clone()));
+        }
+        if let Some(prefer) = prefer_path {
+            if let Some((_, rel, id)) = cands.iter().find(|(_, r, _)| r == prefer) {
+                return Some((rel.clone(), id.clone()));
+            }
+        }
+        if let Some((_, rel, id)) = cands.first() {
+            return Some((rel.clone(), id.clone()));
+        }
+        return None;
+    }
+    // fallback DB
+    let q = Query::new("symbols")
+        .where_filter("name", Operator::Eq, Value::String(name.to_string()))
+        .limit(10);
+    let rows = db.query(q).map_err(|_| anyhow::anyhow!("query symbols")).ok()?;
+    let pick = |filter_path: Option<&str>| -> Option<(String, String)> {
+        rows.iter()
+            .filter(|(_, d)| {
+                filter_path.is_none()
+                    || d.get("path")
+                        .and_then(|v| match v { Value::String(s) => Some(s.as_str()), _ => None })
+                        == filter_path
+            })
+            .next()
+            .and_then(|(id, d)| {
+                let path = d.get("path")
+                    .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None })?;
+                Some((path, id.clone()))
+            })
+    };
+    pick(prefer_path).or_else(|| pick(None))
+}
 
 fn keep_insert(keep: &mut KeepMap, rel: &str, col: &'static str, id: &str) {
     keep.entry(rel.to_string()).or_default().entry(col).or_default().insert(id.to_string());
@@ -157,30 +215,49 @@ fn keep_insert(keep: &mut KeepMap, rel: &str, col: &'static str, id: &str) {
 /// write_batch.
 fn stale_deletes(db: &Hako, keep: &KeepMap, removed_rels: &[String]) -> Result<Vec<BatchMutation>> {
     let mut dels: Vec<BatchMutation> = Vec::new();
-    let clean_rel = |db: &Hako, rel: &str, ids: Option<&HashSet<String>>, dels: &mut Vec<BatchMutation>| -> Result<()> {
-        for col in PATHED_COLLECTIONS {
-            let q = Query::new(col)
+    let clean_rel =
+        |db: &Hako, rel: &str, cols: Option<&HashMap<&'static str, HashSet<String>>>,
+         dels: &mut Vec<BatchMutation>|
+         -> Result<()> {
+            // chunks & symbols: id yang hilang dari set baru dihapus
+            for col in PATHED_COLLECTIONS {
+                let ids = cols.and_then(|c| c.get(col));
+                let q = Query::new(col)
+                    .where_filter("path", Operator::Eq, Value::String(rel.to_string()))
+                    .limit(20_000);
+                for (id, _) in db.query(q).map_err(|e| anyhow::anyhow!("{e}"))? {
+                    let stale = match ids {
+                        Some(set) => !set.contains(&id),
+                        None => true,
+                    };
+                    if stale {
+                        dels.push(BatchMutation::Delete {
+                            collection: col.to_string(),
+                            doc_id: id,
+                        });
+                    }
+                }
+            }
+            // edges: hapus format lama (tanpa callee) dan yang tidak
+            // diregenerasi batch ini; sisanya direkonsiliasi settle_edges
+            let keep_edges = cols.and_then(|c| c.get("edges"));
+            let q = Query::new("edges")
                 .where_filter("path", Operator::Eq, Value::String(rel.to_string()))
                 .limit(20_000);
-            for (id, _) in db.query(q).map_err(|e| anyhow::anyhow!("{e}"))? {
-                let stale = match ids {
-                    Some(set) => !set.contains(&id),
-                    None => true,
-                };
-                if stale {
+            for (id, doc) in db.query(q).map_err(|e| anyhow::anyhow!("{e}"))? {
+                let regen = keep_edges.map_or(false, |s| s.contains(&id));
+                let old_format = doc.get("callee").is_none();
+                if !regen || old_format {
                     dels.push(BatchMutation::Delete {
-                        collection: col.to_string(),
+                        collection: "edges".into(),
                         doc_id: id,
                     });
                 }
             }
-        }
-        Ok(())
-    };
+            Ok(())
+        };
     for (rel, cols) in keep {
-        clean_rel(db, rel, cols.get("chunks"), &mut dels)?;
-        clean_rel(db, rel, cols.get("symbols"), &mut dels)?;
-        clean_rel(db, rel, cols.get("edges"), &mut dels)?;
+        clean_rel(db, rel, Some(cols), &mut dels)?;
     }
     for rel in removed_rels {
         clean_rel(db, rel, None, &mut dels)?;
@@ -295,7 +372,10 @@ pub fn scan(
         sym_ids.push(ids);
     }
 
-    // ---- pass 3: call-graph edges (path = rel caller, untuk cleanup) ----
+    // ---- pass 3: call-graph edges ----
+    // Edge id stabil = hash(caller|callee_NAME|call) — target boleh pindah
+    // file tanpa mengubah id edge. Doc membawa callee + to_path untuk
+    // re-resolusi inbound lintas-file saat file callee berubah.
     let mut edge_ops: Vec<BatchMutation> = Vec::new();
     let mut edge_seen: HashSet<String> = HashSet::new();
     for (fi, p) in parsed.iter().enumerate() {
@@ -303,20 +383,22 @@ pub fn scan(
         let caller_rel = &file_data[fi].0;
         for call in &p.calls {
             let Some(caller_id) = sym_ids[fi].get(call.enclosing) else { continue };
-            let Some(cands) = by_name.get(&call.callee) else { continue };
-            // resolusi: file yang sama dulu, lalu file pertama yang lain
-            let callee = cands
-                .iter()
-                .find(|(cfi, _, _)| *cfi == fi)
-                .or_else(|| cands.first());
-            let Some((_, _, callee_id)) = callee else { continue };
-            if callee_id == caller_id {
+            // resolusi: file yang sama dulu, lalu file pertama yang lain;
+            // nama tidak ada di batch → fallback DB (simbol file lain)
+            let callee = resolve_callee(
+                db, &by_name, fi, Some(caller_rel), &call.callee,
+            );
+            let Some((callee_path, callee_id)) = callee else { continue };
+            if callee_id.as_str() == caller_id {
                 continue; // rekursi langsung: skip agar graph tidak melingkar sepele
             }
-            if !edge_seen.insert(format!("{caller_id}|{callee_id}")) {
+            if !edge_seen.insert(format!("{caller_id}|{}", call.callee)) {
                 continue;
             }
-            let edge_id = hex(&Sha256::digest(format!("{caller_id}|{callee_id}|call").as_bytes()), 8);
+            let edge_id = hex(
+                &Sha256::digest(format!("{caller_id}|{}|call", call.callee).as_bytes()),
+                8,
+            );
             let mut d = HakoDoc::default();
             d.insert("_from", Value::Reference {
                 collection: "symbols".into(),
@@ -329,6 +411,8 @@ pub fn scan(
             d.insert("kind", Value::String("call".into()));
             d.insert("w", Value::Float(2.0));
             d.insert("path", Value::String(caller_rel.clone()));
+            d.insert("callee", Value::String(call.callee.clone()));
+            d.insert("to_path", Value::String(callee_path.clone()));
             edge_ops.push(BatchMutation::Put {
                 collection: "edges".into(),
                 doc_id: edge_id.clone(),
@@ -338,7 +422,9 @@ pub fn scan(
         }
     }
 
-    // ---- cleanup stale (query state lama) + tulis batch gabungan ----
+    // ---- cleanup stale (chunks/symbols + edge format lama) + tulis batch ----
+    // Edge valid tidak dihapus di sini — settle_edges pasca-tulis yang
+    // merekonsiliasi (bebas race urutan file dalam batch).
     let del_ops = stale_deletes(db, &keep, &removed_rels)?;
     let (n_symbols, n_edges, n_removed) = (symbol_ops.len(), edge_ops.len(), del_ops.len());
     let mut ops = chunk_ops;
@@ -349,23 +435,114 @@ pub fn scan(
         db.write_batch(ops)?;
     }
 
+    // ---- pass 4 (pasca-tulis): rekonsiliasi edge milik rel batch ----
+    // Dijalankan SETELAH write_batch agar resolusi melihat state DB final
+    // batch ini — bebas race urutan file (callee pindah file dulu/belum).
+    let settled = {
+        let mut rels: Vec<String> = keep.keys().cloned().collect();
+        rels.extend(removed_rels.iter().cloned());
+        settle_edges(db, &rels)?
+    };
+
     Ok(ScanReport {
         files: files.len(),
         chunks: chunk_mutations.len(),
         symbols: n_symbols,
         edges: n_edges,
         removed: n_removed,
+        settled,
     })
+}
+
+/// Rekonsiliasi edge milik `rels` terhadap state DB FINAL (dipanggil
+/// setelah write_batch):
+///  - caller simbol hilang           → edge dihapus
+///  - callee nama tidak ada lagi     → edge dihapus
+///  - callee pindah file / id berubah → edge di-rewrite (_to, to_path)
+///  - target tetap                   → dibiarkan
+/// Edge format lama (tanpa callee) diabaikan — migrasi lewat rescan file
+/// caller-nya. Bebas race urutan file karena resolusi melihat hasil tulisan
+/// seluruh batch.
+fn settle_edges(db: &Hako, rels: &[String]) -> Result<usize> {
+    let mut batch: Vec<BatchMutation> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for rel in rels {
+        for field in ["path", "to_path"] {
+            let q = Query::new("edges")
+                .where_filter(field, Operator::Eq, Value::String(rel.to_string()))
+                .limit(5_000);
+            for (id, doc) in db.query(q).map_err(|e| anyhow::anyhow!("{e}"))? {
+                if !seen.insert(id.clone()) {
+                    continue;
+                }
+                let Some(from_id) = ref_id(doc.get("_from")) else { continue };
+                let Some(caller_path) = doc
+                    .get("path")
+                    .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None })
+                else { continue };
+                let Some(callee_name) = doc
+                    .get("callee")
+                    .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None })
+                else { continue };
+                // caller harus masih ada
+                if db.get("symbols", &from_id)?.is_none() {
+                    batch.push(BatchMutation::Delete {
+                        collection: "edges".into(),
+                        doc_id: id,
+                    });
+                    continue;
+                }
+                match resolve_callee(db, &HashMap::new(), usize::MAX, Some(&caller_path), &callee_name)
+                {
+                    None => batch.push(BatchMutation::Delete {
+                        collection: "edges".into(),
+                        doc_id: id,
+                    }),
+                    Some((tpath, tid)) => {
+                        let changed = ref_id(doc.get("_to")).as_deref() != Some(tid.as_str());
+                        if changed {
+                            let mut d = HakoDoc::default();
+                            d.insert("_from", Value::Reference {
+                                collection: "symbols".into(),
+                                doc_id: from_id,
+                            });
+                            d.insert("_to", Value::Reference {
+                                collection: "symbols".into(),
+                                doc_id: tid,
+                            });
+                            d.insert("kind", Value::String("call".into()));
+                            d.insert("w", Value::Float(2.0));
+                            d.insert("path", Value::String(caller_path.clone()));
+                            d.insert("callee", Value::String(callee_name.clone()));
+                            d.insert("to_path", Value::String(tpath));
+                            batch.push(BatchMutation::Put {
+                                collection: "edges".into(),
+                                doc_id: id,
+                                doc: d,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let n = batch.len();
+    if !batch.is_empty() {
+        db.write_batch(batch)?;
+    }
+    Ok(n)
 }
 
 /// Hapus semua doc (chunks/symbols/edges) milik satu rel — untuk file terhapus.
 pub fn remove_rel(db: &Hako, rel: &str) -> Result<usize> {
     let dels = stale_deletes(db, &HashMap::new(), &[rel.to_string()])?;
-    let n = dels.len();
+    let n_del = dels.len();
     if !dels.is_empty() {
         db.write_batch(dels)?;
     }
-    Ok(n)
+    // edge: rekonsiliasi pasca-hapus (caller hilang → hapus; callee pindah → ikut)
+    let settled = settle_edges(db, &[rel.to_string()])?;
+    Ok(n_del + settled)
 }
 
 /// rel file terhadap root project (publik untuk API).

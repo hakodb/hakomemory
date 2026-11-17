@@ -2,7 +2,7 @@
 
 RAG server untuk OpenCode: prolonged memory, live context, codebase memory,
 dan self-learning skill — di atas HakoDB v0.20.8 (vector HNSW + graph, hybrid
-RRF, GraphRAG primitives) dengan embedding lokal MiniLM 384d.
+RRF, GraphRAG primitives) dengan embedding lokal MiniLM 384d multibahasa (paraphrase-multilingual-MiniLM-L12-v2, default).
 
 Baca [PLAN.md](PLAN.md) untuk keputusan desain, arsitektur, dan fase kerja.
 
@@ -11,7 +11,7 @@ Baca [PLAN.md](PLAN.md) untuk keputusan desain, arsitektur, dan fase kerja.
 ```
 crates/
   mb-poc/       POC fase 1: validasi hakodb wave-1 API + embedder lokal (SELESAI)
-  mb-embed/     embedder teks lokal: MiniLM-L6 384d via candle (pure Rust)
+  mb-embed/     embedder teks lokal: MiniLM 384d multibahasa via candle (pure Rust)
   mb-server/    server axum (fase 2)
 plugins/        plugin OpenCode TS (fase 3)
 ```

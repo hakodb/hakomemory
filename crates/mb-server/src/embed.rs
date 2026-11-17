@@ -12,7 +12,7 @@ pub struct SharedEmbedder {
 
 impl SharedEmbedder {
     pub fn load(cache_dir: &Path) -> Result<Self> {
-        let inner = Embedder::load(mb_embed::MINILM_L6_V2, Some(cache_dir))?;
+        let inner = Embedder::load(&mb_embed::model_from_env(), Some(cache_dir))?;
         Ok(Self { inner: Mutex::new(inner) })
     }
 

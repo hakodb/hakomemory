@@ -69,9 +69,7 @@ impl ProjectStore {
         Ok(db)
     }
 
-    pub fn data_dir(&self) -> &PathBuf {
-        &self.data_dir
-    }
+
 }
 
 /// Buat semua index SEBELUM tulis pertama (kontrak hakodb).

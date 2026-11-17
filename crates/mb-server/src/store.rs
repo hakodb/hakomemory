@@ -1,7 +1,9 @@
 //! Manager instance HakoDB per project + skema koleksi/index.
 
 use anyhow::{anyhow, Context, Result};
-use hakodb::engine::Hako;
+use hakodb::document::hako_doc::HakoDoc;
+use hakodb::document::value::Value;
+use hakodb::engine::{BatchMutation, Hako};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -44,6 +46,7 @@ impl ProjectStore {
         std::fs::create_dir_all(&dir)?;
         let db = Arc::new(Hako::open(&dir, hakodb::config::HakoConfig::default())?);
         ensure_schema(&db)?;
+        persist_root(&db, canonical_path)?;
         self.instances.lock().unwrap().insert(pid.clone(), db.clone());
         Ok((pid, db))
     }
@@ -70,6 +73,30 @@ impl ProjectStore {
     }
 
 
+}
+
+/// Simpan root project ke koleksi `meta` (id "root") — dasar rel scan.
+/// Koleksi meta tanpa index (hanya get by id).
+pub fn persist_root(db: &Hako, canonical_path: &str) -> Result<()> {
+    if db.get("meta", "root")?.is_some() {
+        return Ok(());
+    }
+    let mut d = HakoDoc::default();
+    d.insert("path", Value::String(canonical_path.to_string()));
+    db.write_batch(vec![BatchMutation::Put {
+        collection: "meta".into(),
+        doc_id: "root".into(),
+        doc: d,
+    }])?;
+    Ok(())
+}
+
+/// Baca root project (canonical) dari meta; None jika project lama.
+pub fn read_root(db: &Hako) -> Result<Option<String>> {
+    Ok(db.get("meta", "root")?.and_then(|d| match d.get("path") {
+        Some(Value::String(s)) => Some(s.clone()),
+        _ => None,
+    }))
 }
 
 /// Buat semua index SEBELUM tulis pertama (kontrak hakodb).

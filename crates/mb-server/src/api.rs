@@ -76,12 +76,46 @@ pub async fn index_scan(
     let (pid, path) = (input.project_id.clone(), input.path.clone());
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
-        indexer::scan(&db, &embedder, std::path::Path::new(&path))
+        // rel selalu terhadap root project (meta); fallback: path scan
+        let base = crate::store::read_root(&db)?.unwrap_or_else(|| path.clone());
+        indexer::scan(&db, &embedder, std::path::Path::new(&base), std::path::Path::new(&path))
     })
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?
     .map_err(err500)?;
     Ok(Json(serde_json::to_value(res).unwrap()))
+}
+
+#[derive(Deserialize)]
+pub struct IndexRemove {
+    pub project_id: String,
+    /// path file (rel terhadap root project, atau absolut)
+    pub path: String,
+}
+
+/// Hapus semua chunk/simbol/edge milik satu file (file terhapus).
+pub async fn index_remove(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<IndexRemove>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let store = state.store.clone();
+    let (pid, path) = (input.project_id.clone(), input.path.clone());
+    let res = tokio::task::spawn_blocking(move || {
+        let db = store.get(&pid)?;
+        let base = crate::store::read_root(&db)?.unwrap_or_default();
+        // terima rel atau absolut
+        let rel = if std::path::Path::new(&path).is_absolute() {
+            indexer::rel_of_pub(std::path::Path::new(&path), std::path::Path::new(&base))
+        } else {
+            path
+        };
+        let removed = indexer::remove_rel(&db, &rel)?;
+        Ok::<_, anyhow::Error>(serde_json::json!({ "removed": removed, "rel": rel }))
+    })
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(res))
 }
 
 #[derive(Deserialize)]

@@ -44,20 +44,28 @@ fn path_ignored(path: &Path) -> bool {
     false
 }
 
-/// Hanya Create/Modify yang menarik (Access bisa membanjiri).
+/// Create/Modify → file yang masih ada; Remove → file source yang hilang
+/// (scan nanti melakukan cleanup murni untuk rel-nya).
 fn event_paths(ev: &Event) -> Vec<PathBuf> {
     match ev.kind {
-        notify::EventKind::Create(_) | notify::EventKind::Modify(_) => {}
-        _ => return Vec::new(),
+        notify::EventKind::Create(_) | notify::EventKind::Modify(_) => ev
+            .paths
+            .iter()
+            .filter(|p| p.is_file())
+            .filter(|p| !path_ignored(p))
+            .filter(|p| indexer::is_source(p))
+            .filter(|p| p.metadata().map(|m| m.len() <= 256 * 1024).unwrap_or(false))
+            .cloned()
+            .collect(),
+        notify::EventKind::Remove(_) => ev
+            .paths
+            .iter()
+            .filter(|p| !path_ignored(p))
+            .filter(|p| indexer::is_source(p))
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
     }
-    ev.paths
-        .iter()
-        .filter(|p| p.is_file())
-        .filter(|p| !path_ignored(p))
-        .filter(|p| indexer::is_source(p))
-        .filter(|p| p.metadata().map(|m| m.len() <= 256 * 1024).unwrap_or(false))
-        .cloned()
-        .collect()
 }
 
 /// Mulai watcher untuk satu project. Dipanggil dari handler async tapi
@@ -101,7 +109,7 @@ fn run(store: Arc<ProjectStore>, embedder: Arc<SharedEmbedder>, pid: String, roo
                 let files: Vec<PathBuf> = pending.drain().collect();
                 let mut ok = 0usize;
                 for f in &files {
-                    match indexer::scan(&db, &embedder, f) {
+                    match indexer::scan(&db, &embedder, &root, f) {
                         Ok(_) => ok += 1,
                         Err(e) => {
                             tracing::warn!("watcher scan {}: {e}", f.display())

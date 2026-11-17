@@ -38,6 +38,7 @@ use state::AppState;
         .route("/healthz", axum::routing::get(api::healthz))
         .route("/v1/projects/open", axum::routing::post(api::projects_open))
         .route("/v1/index/scan", axum::routing::post(api::index_scan))
+        .route("/v1/index/remove", axum::routing::post(api::index_remove))
         .route("/v1/index/status", axum::routing::get(api::index_status))
         .route("/v1/retrieve", axum::routing::post(api::retrieve))
         .route("/v1/graph/context", axum::routing::post(api::graph_context))

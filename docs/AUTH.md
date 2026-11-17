@@ -147,4 +147,29 @@ Order of work: authN → authorize `project_id` → validate `projects/open` pat
 Without steps 1–3, adding `user_id` fields alone gives **no real isolation**,
 because a caller can still choose another user's `pid`.
 
-**Status: design assessment only — no auth or isolation code has been added.**
+## Implemented status
+
+Auth + isolation have been implemented in phases:
+
+1. `auth.rs`: HMAC-signed token (`mb1.<payload>.<sig>`) with `sub`, `roots`,
+   `projects`, `exp`, `admin`; `MEMORYBOX_AUTH_SECRET` enables auth (unset =
+   legacy open mode). `mb-token` mints tokens.
+2. Middleware verifies the token; `/healthz` stays public. All `/v1/*`
+   handlers call `state.authorize_project(&auth, pid)` and `projects/open`
+   validates the path against the token roots.
+3. `projects/open` accepts a per-user alias; the server computes `pid` and
+   persists `project_aliases.json` (alias + pid→root map). Client cannot pick
+   an arbitrary `pid`.
+4. Memory docs are stamped with `user_id` (+ optional `agent_id`/`session_id`);
+   search filters by owner and `forget` rejects another user's doc. Legacy
+   documents without `user_id` are hidden from non-admin users — a backfill
+   tool is still a follow-up.
+5. Plugin and `mb-mcp` send `Authorization: Bearer` from `MEMORYBOX_TOKEN`
+   (or `options.token`) and can open by `MEMORYBOX_ALIAS` / `options.alias`.
+
+Tests: 6 auth integration tests + 5 endpoint tests + 4 MCP unit tests +
+2 parser tests — all pass via `cargo test --workspace`.
+
+Known limitation: `hybrid_search` has no server-side field filter, so owner
+filtering is applied to an enlarged candidate set (k×5). This is correct but
+may return fewer than `k` hits for users with sparse memory.

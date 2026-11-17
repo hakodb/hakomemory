@@ -23,11 +23,14 @@ const SERVER_DEFAULT = "http://127.0.0.1:7412"
 const INJECT_CHAR_BUDGET = 4000
 const FETCH_TIMEOUT_MS = 5000
 
-async function post(url, body, timeoutMs = FETCH_TIMEOUT_MS) {
+async function post(url, body, timeoutMs = FETCH_TIMEOUT_MS, token = "") {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
@@ -70,6 +73,10 @@ export default {
       process.env.MEMORYBOX_URL ||
       SERVER_DEFAULT
     const autoInject = opts.autoInject !== false
+    const token = (typeof opts.token === "string" && opts.token) ||
+      process.env.MEMORYBOX_TOKEN || ""
+    const alias = (typeof opts.alias === "string" && opts.alias) ||
+      process.env.MEMORYBOX_ALIAS || ""
 
     const directory =
       (typeof opts.projectPath === "string" && opts.projectPath) ||
@@ -80,7 +87,12 @@ export default {
     if (!directory) return
 
     // buka project di server (idempotent)
-    const opened = await post(`${server}/v1/projects/open`, { path: directory })
+    const opened = await post(
+      `${server}/v1/projects/open`,
+      alias ? { alias, path: directory } : { path: directory },
+      FETCH_TIMEOUT_MS,
+      token,
+    )
     const projectID = opened?.project_id
     if (!projectID) {
       console.warn("[memory-box] server tidak tersedia; plugin pasif")
@@ -89,13 +101,14 @@ export default {
     console.log(`[memory-box] project ${projectID} (${directory})`)
 
     const retrieve = async (query, k) =>
-      post(`${server}/v1/retrieve`, { project_id: projectID, query, k })
+      post(`${server}/v1/retrieve`, { project_id: projectID, query, k }, FETCH_TIMEOUT_MS, token)
 
     const remember = async (kind, text, metadata) =>
       post(
         `${server}/v1/memory/write`,
         { project_id: projectID, kind, text, metadata },
         8000,
+        token,
       )
 
     /** Distilasi transkrip → pelajaran prosedural (self-learning skill). */
@@ -174,7 +187,7 @@ export default {
             kind: "procedural",
             query,
             k: 2,
-          }),
+          }, FETCH_TIMEOUT_MS, token),
         ])
         const hits = res?.hits ?? []
         const lessons = (proc?.hits ?? []).map((h) => h.text)
@@ -327,7 +340,7 @@ export default {
               project_id: projectID,
               name: seed,
               k: 5,
-            })
+            }, FETCH_TIMEOUT_MS, token)
             const hit = lk?.hits?.[0]
             if (!hit) return { content: `simbol "${seed}" tidak ditemukan` }
             resolved = `symbols/${hit.id}`
@@ -336,7 +349,7 @@ export default {
             project_id: projectID,
             seed: resolved,
             hops,
-          })
+          }, FETCH_TIMEOUT_MS, token)
           if (!res) return { content: "memory-box server tidak merespons" }
           // node bisa simbol/chunk; hop via koleksi edge disajikan sebagai
           // node edge-doc yang membawa _from/_to ({"__ref__": "col/id"}).

@@ -158,3 +158,23 @@ Model embedding (candle) berjalan lokal dan **tanpa kuota**. Jika kuota
 `generate` habis, plugin tetap berfungsi untuk retrieval/graph/penyimpanan;
 hanya ringkasan prosedural otomatis yang tertunda. Uji plumbing tanpa LLM:
 `bash scripts/test-distill-e2e.sh`.
+
+## Multi-user mode
+
+```bash
+export MEMORYBOX_AUTH_SECRET=<random-secret>
+# server: same binary, auth enabled automatically
+
+# mint a token for one user (secret from env, never argv)
+MEMORYBOX_AUTH_SECRET=<random-secret> ./target/release/mb-token \
+  --sub alice --roots /home/alice/project --projects <pid> --days 30
+
+# client (plugin config or env)
+export MEMORYBOX_TOKEN=<token>
+export MEMORYBOX_ALIAS=work
+```
+
+`projects/open` accepts `{alias, path}` on first use and `{alias}` afterwards;
+the server validates the path against the token roots and computes the project
+id itself. Memory is stamped with `user_id` and filtered per user. Legacy docs
+without `user_id` are visible to admin tokens only. See `docs/AUTH.md`.

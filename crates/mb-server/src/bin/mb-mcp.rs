@@ -53,8 +53,13 @@ fn http_post_json(path: &str, body: &Value) -> Result<Value, String> {
     };
     let uri = format!("{base_path}{path}"); // path selalu berawalan '/'
     let payload = body.to_string();
+    let auth = std::env::var("MEMORYBOX_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("Authorization: Bearer {t}\r\n"))
+        .unwrap_or_default();
     let req = format!(
-        "POST {uri} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+        "POST {uri} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{auth}Connection: close\r\n\r\n{payload}",
         payload.len()
     );
     let mut stream = TcpStream::connect(host).map_err(|e| format!("connect {host}: {e}"))?;
@@ -112,7 +117,12 @@ fn dechunk(body: &str) -> String {
 fn project_id() -> Result<String, String> {
     match &cfg().project {
         Some(p) => {
-            let r = http_post_json("/v1/projects/open", &json!({ "path": p }))?;
+            let alias = std::env::var("MEMORYBOX_ALIAS").ok().filter(|a| !a.is_empty());
+            let body = match alias {
+                Some(a) => json!({ "alias": a, "path": p }),
+                None => json!({ "path": p }),
+            };
+            let r = http_post_json("/v1/projects/open", &body)?;
             r.get("project_id")
                 .and_then(|v| v.as_str())
                 .map(String::from)

@@ -81,11 +81,15 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_MODEL` | `multi` | `multi`, `en`, or a Hugging Face repo id |
 | `MEMORYBOX_MODEL_CACHE` | `~/.cache/huggingface/hub` | local model cache |
 | `MEMORYBOX_WATCH` | enabled | `0` disables the auto-index watcher |
+| `MEMORYBOX_AUTH_SECRET` | unset | HMAC secret; unset = legacy open mode |
+| `MEMORYBOX_TOKEN` | unset | token used by plugin / MCP clients |
+| `MEMORYBOX_ALIAS` | unset | project alias sent by plugin / MCP |
 | `MEMORYBOX_URL` | `http://127.0.0.1:7412` | server URL (plugin / MCP) |
 | `MEMORYBOX_PROJECT` | session directory | codebase path (plugin / MCP) |
 
-The server has **no authentication** — do not expose it directly to a network.
-See [docs/AUTH.md](docs/AUTH.md) for the auth assessment.
+Set `MEMORYBOX_AUTH_SECRET` for multi-user deployments and mint per-user
+tokens with `mb-token`. Without it the server keeps the legacy open/local
+behavior. See [docs/AUTH.md](docs/AUTH.md) for the isolation design.
 
 ## API
 

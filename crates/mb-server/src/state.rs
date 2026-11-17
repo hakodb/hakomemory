@@ -8,7 +8,7 @@ use crate::watcher;
 use anyhow::{bail, Context, Result};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -61,6 +61,7 @@ pub struct AppState {
     pub watches: watcher::WatchRegistry,
     pub auth: Arc<AuthConfig>,
     pub aliases: Mutex<AliasRegistry>,
+    pub revoked: Mutex<HashSet<String>>,
     data_dir: PathBuf,
 }
 
@@ -119,6 +120,7 @@ impl AppState {
             watches: watcher::WatchRegistry::default(),
             auth,
             aliases: Mutex::new(AliasRegistry::load(data_dir)),
+            revoked: Mutex::new(load_revoked(data_dir)),
             data_dir: data_dir.to_path_buf(),
         })
     }
@@ -169,5 +171,24 @@ impl AppState {
             }
         }
         auth.require_project(pid)
+    }
+}
+
+/// Daftar kunci token yang dicabut, dipersisten sebagai JSON sederhana.
+fn load_revoked(data_dir: &Path) -> HashSet<String> {
+    std::fs::read_to_string(data_dir.join("revoked_tokens.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+impl AppState {
+    pub fn revoke_token(&self, key: String) -> Result<()> {
+        let mut set = self.revoked.lock().unwrap();
+        set.insert(key);
+        let tmp = self.data_dir.join("revoked_tokens.json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&*set)?)?;
+        std::fs::rename(&tmp, self.data_dir.join("revoked_tokens.json"))?;
+        Ok(())
     }
 }

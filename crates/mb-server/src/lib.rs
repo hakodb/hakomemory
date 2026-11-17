@@ -32,6 +32,7 @@ pub fn router(app_state: Arc<AppState>) -> Router {
             "/v1/admin/backfill",
             axum::routing::post(api::admin_backfill_owner),
         )
+        .route("/v1/admin/revoke", axum::routing::post(api::admin_revoke))
         .layer(axum::middleware::from_fn(
             |req: axum::http::Request<axum::body::Body>,
              next: axum::middleware::Next| async move {
@@ -51,7 +52,8 @@ pub fn router(app_state: Arc<AppState>) -> Router {
                 if req.uri().path() == "/healthz" {
                     return next.run(req).await;
                 }
-                match state.auth.authenticate(req.headers()) {
+                let revoked = state.revoked.lock().unwrap().clone();
+                match state.auth.authenticate(req.headers(), &revoked) {
                     Ok(ctx) => {
                         req.extensions_mut().insert(ctx);
                         next.run(req).await

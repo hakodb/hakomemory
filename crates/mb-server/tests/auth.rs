@@ -39,6 +39,10 @@ fn token(sub: &str, projects: &[&str], roots: &[String], admin: bool) -> String 
             roots: roots.to_vec(),
             exp,
             admin,
+            jti: Some(format!("jti_{sub}_{}", {
+                static N: AtomicU64 = AtomicU64::new(0);
+                N.fetch_add(1, Ordering::SeqCst)
+            })),
         },
         SECRET,
     )
@@ -365,6 +369,61 @@ async fn backfill_owner_hanya_admin_dan_menyembunyikan_legacy() {
     assert!(a["hits"].as_array().unwrap().len() >= 1, "alice harus melihat after backfill: {a}");
     let (_, b) = call_json(&app, "POST", "/v1/memory/search", body, Some(&bob)).await;
     assert!(b["hits"].as_array().unwrap().is_empty(), "bob tidak boleh: {b}");
+}
+
+#[tokio::test]
+async fn revokasi_token_berlaku() {
+    let dir = temp_root();
+    let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
+    let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
+    let state = AppState::open_mock_with_auth(
+        &dir,
+        AuthConfig::Enabled { secret: SECRET.to_vec() },
+    )
+    .unwrap();
+    let app = router(state.clone());
+    let admin = token("admin", &[], &[], true);
+    let alice = token("alice", &[&pid], &[canonical.clone()], false);
+
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/projects/open",
+            json!({ "path": canonical }), Some(&alice)
+        ).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/admin/revoke",
+            json!({ "token": alice }), Some(&admin)
+        ).await,
+        StatusCode::OK
+    );
+    // token lama sudah tidak bisa dipakai
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/retrieve",
+            json!({ "project_id": pid, "query": "x", "k": 1 }), Some(&alice)
+        ).await,
+        StatusCode::UNAUTHORIZED
+    );
+    // admin tidak ikut tercabut
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/projects/open",
+            json!({ "path": dir.to_string_lossy() }), Some(&admin)
+        ).await,
+        StatusCode::OK
+    );
+    // non-admin tidak bisa mencabut
+    let bob = token("bob", &[], &[], false);
+    assert_eq!(
+        call(
+            &app, "POST", "/v1/admin/revoke",
+            json!({ "jti": "jti_bob_0" }), Some(&bob)
+        ).await,
+        StatusCode::FORBIDDEN
+    );
 }
 
 fn hex12(d: &[u8]) -> String {

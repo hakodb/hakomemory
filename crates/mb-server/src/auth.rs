@@ -16,7 +16,7 @@ use axum::http::{HeaderMap, StatusCode};
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,6 +36,9 @@ pub struct Claims {
     pub exp: u64,
     #[serde(default)]
     pub admin: bool,
+    /// id token untuk revokasi; bila kosong dipakai fingerprint SHA-256 token.
+    #[serde(default)]
+    pub jti: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +47,8 @@ pub struct AuthContext {
     pub roots: Vec<PathBuf>,
     pub projects: Vec<String>,
     pub admin: bool,
+    /// kunci untuk pengecekan revokasi (jti atau fingerprint token).
+    pub key: String,
 }
 
 impl AuthContext {
@@ -54,6 +59,7 @@ impl AuthContext {
             roots: Vec::new(),
             projects: Vec::new(),
             admin: true,
+            key: "local".into(),
         }
     }
 
@@ -113,7 +119,11 @@ impl AuthConfig {
     }
 
     /// Verifikasi header `Authorization: Bearer <token>`.
-    pub fn authenticate(&self, headers: &HeaderMap) -> Result<AuthContext, StatusCode> {
+    pub fn authenticate(
+        &self,
+        headers: &HeaderMap,
+        revoked: &std::collections::HashSet<String>,
+    ) -> Result<AuthContext, StatusCode> {
         let secret = match self {
             Self::Disabled => return Ok(AuthContext::open()),
             Self::Enabled { secret } => secret.as_slice(),
@@ -128,11 +138,19 @@ impl AuthConfig {
         if claims.exp != 0 && claims.exp < now {
             return Err(StatusCode::UNAUTHORIZED);
         }
+        let key = claims
+            .jti
+            .clone()
+            .unwrap_or_else(|| fingerprint(raw));
+        if revoked.contains(&key) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
         Ok(AuthContext {
             sub: claims.sub,
             roots: claims.roots.into_iter().map(PathBuf::from).collect(),
             projects: claims.projects,
             admin: claims.admin,
+            key,
         })
     }
 }
@@ -163,4 +181,20 @@ pub fn verify_token(token: &str, secret: &[u8]) -> Result<Claims> {
         .decode(parts[1])
         .map_err(|_| anyhow!("payload bukan base64"))?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Fingerprint deterministik untuk token tanpa `jti`.
+pub fn fingerprint(token: &str) -> String {
+    let d = Sha256::digest(token.as_bytes());
+    d.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Kunci revokasi dari token yang sudah divalidasi.
+pub fn token_key(config: &AuthConfig, token: &str) -> Result<String, StatusCode> {
+    let secret = match config {
+        AuthConfig::Disabled => return Err(StatusCode::BAD_REQUEST),
+        AuthConfig::Enabled { secret } => secret.as_slice(),
+    };
+    let claims = verify_token(token, secret).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Ok(claims.jti.unwrap_or_else(|| fingerprint(token)))
 }

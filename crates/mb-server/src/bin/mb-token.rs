@@ -24,6 +24,7 @@ fn main() -> Result<()> {
     let mut roots = Vec::new();
     let mut days = 30u64;
     let mut admin = false;
+    let mut jti: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -44,6 +45,7 @@ fn main() -> Result<()> {
             }
             "--days" => days = next(&args, &mut i, "--days")?.parse()?,
             "--admin" => admin = true,
+            "--jti" => jti = Some(next(&args, &mut i, "--jti")?),
             "--help" => {
                 println!("{}", include_str!("TOKEN_HELP.txt"));
                 return Ok(());
@@ -66,6 +68,13 @@ fn main() -> Result<()> {
             projects,
             exp,
             admin,
+            jti: Some(jti.unwrap_or_else(|| {
+                let nanos = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                format!("jti-{nanos}-{}", std::process::id())
+            })),
         },
         secret.as_bytes(),
     )?;

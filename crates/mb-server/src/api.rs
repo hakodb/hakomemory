@@ -575,6 +575,35 @@ pub async fn admin_backfill_owner(
     Ok(Json(res))
 }
 
+#[derive(Deserialize)]
+pub struct RevokeToken {
+    /// token lengkap (dari header klien) — jti/fingerprint dihitung server
+    pub token: Option<String>,
+    /// atau langsung kunci revokasi (jti)
+    pub jti: Option<String>,
+}
+
+/// Cabut token: rotasi = mint token baru via mb-token lalu cabut yang lama.
+pub async fn admin_revoke(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<RevokeToken>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(&auth)?;
+    let key = if let Some(jti) = input.jti {
+        jti
+    } else if let Some(token) = input.token {
+        crate::auth::token_key(&state.auth, &token).map_err(auth_err)?
+    } else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "token atau jti wajib" })),
+        ));
+    };
+    state.revoke_token(key.clone()).map_err(err500)?;
+    Ok(Json(serde_json::json!({ "revoked": key })))
+}
+
 // ---- util ----
 
 fn memory_col(kind: &str) -> Result<&'static str> {

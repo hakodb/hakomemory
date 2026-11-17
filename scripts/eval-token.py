@@ -17,12 +17,16 @@ Output: tabel per pertanyaan + total, disimpan juga ke eval-results.json.
 """
 
 import json
+import os
 import subprocess
 import urllib.request
 
-BASE = "http://127.0.0.1:7412"
-PROJECT = "/home/riza/memory-box"
-REPO = PROJECT
+BASE = os.environ.get("MEMORYBOX_URL", "http://127.0.0.1:7412")
+REPO = os.environ.get(
+    "MEMORYBOX_PROJECT",
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+)
+PROJECT = REPO
 
 def pid():
     req = urllib.request.Request(

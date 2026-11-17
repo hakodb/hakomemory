@@ -8,8 +8,7 @@
 //! Setiap pattern symbol divalidasi sendiri; pattern yang tidak cocok dengan
 //! versi grammar di-skip dengan log (bukan mematikan seluruh query).
 //!
-//! TODO (fase lanjut): pembersihan simbol stale saat re-scan, bahasa lain,
-//! resolusi import path.
+//! TODO: dukungan bahasa tambahan, resolusi import path.
 
 use streaming_iterator::StreamingIteratorMut;
 use tree_sitter::{Language, Parser, Query, QueryCursor};

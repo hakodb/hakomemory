@@ -136,7 +136,7 @@ Salin `target/release/mb-mcp`, lalu daftarkan ke klien MCP:
 {
   "mcpServers": {
     "memory-box": {
-      "command": "/home/riza/memory-box/target/release/mb-mcp",
+      "command": "/path/ke/memory-box/target/release/mb-mcp",
       "env": {
         "MEMORYBOX_PROJECT": "/path/ke/codebase",
         "MEMORYBOX_URL": "http://127.0.0.1:7412"
@@ -154,4 +154,4 @@ Plugin memakai model OpenCode milik pemakai untuk distill saat compaction.
 Model embedding (candle) berjalan lokal dan **tanpa kuota**. Jika kuota
 `generate` habis, plugin tetap berfungsi untuk retrieval/graph/penyimpanan;
 hanya ringkasan prosedural otomatis yang tertunda. Uji plumbing tanpa LLM:
-`bash ~/memory-box/scripts/test-distill-e2e.sh`.
+`bash scripts/test-distill-e2e.sh`.

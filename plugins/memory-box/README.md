@@ -26,7 +26,7 @@ Semua jaringan gagal-aman: kalau server mati, plugin pasif dan sesi tetap jalan.
 
    ```json
    {
-     "plugins": ["/home/riza/memory-box/plugins/memory-box"]
+     "plugins": ["./plugins/memory-box"]
    }
    ```
 
@@ -34,7 +34,7 @@ Semua jaringan gagal-aman: kalau server mati, plugin pasif dan sesi tetap jalan.
 
    ```json
    {
-     "plugins": [{ "path": "/home/riza/memory-box/plugins/memory-box", "options": {
+     "plugins": [{ "path": "./plugins/memory-box", "options": {
        "server": "http://127.0.0.1:7412",
        "autoInject": true
      }}]

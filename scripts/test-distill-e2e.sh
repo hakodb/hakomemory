@@ -4,10 +4,11 @@
 # sehingga rantai compaction -> tulis mem_procedural -> injeksi konteks tetap
 # diuji penuh. Untuk menguji dengan LLM asli, lihat README/PLAN.
 set -euo pipefail
-cd /home/riza/memory-box
+REPO=${MEMORYBOX_PROJECT:-$(cd "$(dirname "$0")/.." && pwd)}
+cd "$REPO"
 OC=${OC:-$HOME/.opencode/bin/opencode}
 SVR=${SVR:-http://127.0.0.1:7412}
-PID=${PID:-830d232f9c86}
+PID=${PID:-$(python3 -c 'import hashlib,sys;print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "$REPO")}
 MARK=${MARK:-"MARKER-UJI-$(date +%s)"}
 MODEL=${MODEL:-opencode/inkling-2-small-free}
 
@@ -15,7 +16,7 @@ post() { curl -s -X POST "$SVR$1" -H 'content-type: application/json' -d "$2"; }
 
 echo "== marker: $MARK"
 echo "== pastikan project open"
-post /v1/projects/open "{\"path\":\"/home/riza/memory-box\"}" >/dev/null
+post /v1/projects/open "{\"path\":\"$REPO\"}" >/dev/null
 
 echo "== sesi 1: diskusi + picu compaction (hook -> semantic + distill mock)"
 MEMORYBOX_DISTILL_MODE=mock MEMORYBOX_TEST_TOOLS=1 timeout 240 \

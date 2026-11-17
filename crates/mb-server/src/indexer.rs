@@ -14,8 +14,7 @@
 //! di-scan; id yang tidak ada di set baru dihapus (chunks/symbols/edges).
 //! Target yang sudah tidak ada (file dihapus) → cleanup murni.
 //!
-//! TODO fase lanjut: re-resolusi edge lintas-file yang menunjuk ke simbol
-//! milik file lain yang berubah (dangling inbound edge), resolusi import path.
+//! TODO: resolusi import path (saat ini callee dicocokkan nama global).
 
 use crate::embed::SharedEmbedder;
 use crate::parser;

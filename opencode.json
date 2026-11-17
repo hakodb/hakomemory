@@ -1,4 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["/home/riza/memory-box/plugins/memory-box"]
+  "plugins": [
+    {
+      "package": "./plugins/memory-box",
+      "options": {
+        "server": "http://127.0.0.1:7412",
+        "autoInject": true
+      }
+    }
+  ]
 }

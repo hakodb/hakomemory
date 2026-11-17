@@ -36,15 +36,17 @@ fn main() -> Result<()> {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir)?;
 
-    let cache = "/home/riza/memory-box/data/model-cache";
-    std::fs::create_dir_all(cache)?;
+    let cache = std::env::var("MEMORYBOX_MODEL_CACHE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| dir.join("model-cache"));
+    std::fs::create_dir_all(&cache)?;
 
     println!("== 0. open HakoDB dulu (pemilik pool rayon global) ==");
     let db = open_db(&dir)?;
 
     println!("== 1. load MiniLM-L6 (384d, candle pure-Rust) — unduh sekali, lalu cache ==");
     let t0 = std::time::Instant::now();
-    let mut model = Embedder::load(mb_embed::MINILM_L6_V2, Some(std::path::Path::new(cache)))?;
+    let mut model = Embedder::load(&mb_embed::model_from_env(), Some(&cache))?;
     println!("   model siap dalam {:.1} s", t0.elapsed().as_secs_f64());
 
     let chunks = [

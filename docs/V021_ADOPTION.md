@@ -62,7 +62,7 @@ Tidak ada perubahan pada plugin/MCP: token, alias, scope user, dan auth tetap ap
 
 ### E1 — Upgrade pin ke v0.21.0 + verifikasi (lakukan dulu)
 - `Cargo.toml`: `tag = "v0.21.0"`, `cargo update -p hakodb`.
-- Jalankan `cargo test --workspace` (20 test) + POC wave-1 `mb-poc` (hybrid, KNN, BFS, subgraph, pagerank, communities, persist-HNSW). Catat: `hybrid_search` kini delegasi → hasil harus identik.
+- Jalankan `cargo test --workspace` (20 test) + POC wave-1 `hakomemory-poc` (hybrid, KNN, BFS, subgraph, pagerank, communities, persist-HNSW). Catat: `hybrid_search` kini delegasi → hasil harus identik.
 - Build release, restart, smoke: retrieve, graph, memory search, MCP tools.
 - Catat latensi sebelum/sesudah untuk regression check.
 
@@ -75,7 +75,7 @@ Tidak ada perubahan pada plugin/MCP: token, alias, scope user, dan auth tetap ap
 
 ### E3 — Ganti strip `emb` ke `subgraph_json_projected` (P0-B adoption)
 - Definisikan `const GRAPH_FIELDS: &[&str] = ["name","kind","path","start_line","content","_from","_to","callee","to_path","w","text","ts"]`; pass `Some(&fields.iter().map(...).collect::<Vec<String>>())`.
-- Verifikasi `graph/context` tetap mengembalikan edge-doc dengan `_from`/`_to` + `callee`/`to_path` (plugin dan `mb-mcp` bergantung pada itu).
+- Verifikasi `graph/context` tetap mengembalikan edge-doc dengan `_from`/`_to` + `callee`/`to_path` (plugin dan `hakomemory-mcp` bergantung pada itu).
 - Hapus blok `doc.remove("emb")` di `api.rs` dan catatan workaround di PLAN/AUTH.
 
 ### E4 — `ensure_indexes` saat startup (P2 adoption, hardening)
@@ -103,7 +103,7 @@ Tidak ada perubahan pada plugin/MCP: token, alias, scope user, dan auth tetap ap
 | Risiko | Mitigasi |
 |---|---|
 | `ensure_indexes` error "different vector def" saat reopen data lama | E4 harus diawali uji reopen.save data; bila metric lama berbeda, migrasi eksplisit (wipe+rescan) atau biarkan `ensure_schema` lama untuk project existing. |
-| `subgraph_json_projected` menghilangkan field yang dipakai plugin | E3: daftar field eksplisit + test `mb-mcp` dan plugin session. Jangan lupa `content`/`path` untuk chunk. |
+| `subgraph_json_projected` menghilangkan field yang dipakai plugin | E3: daftar field eksplisit + test `hakomemory-mcp` dan plugin session. Jangan lupa `content`/`path` untuk chunk. |
 | Perilaku `hybrid_search_filtered` untuk admin tanpa filter | E2: kirim `&[]` = persis `hybrid_search()` lama,包括 dokumen legacy tanpa `user_id`. |
 | Regresi performa engine | E1: bandingkan latensi retrieve/graph sebelum-sesudah; POC wave-1 + cardinality assert (issue sudah menambah ini di gate bench). |
 

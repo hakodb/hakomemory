@@ -1111,7 +1111,8 @@ dependencies = [
 [[package]]
 name = "hakodb"
 version = "0.21.0"
-source = "git+https://github.com/hakodb/hakodb?tag=v0.21.0#445495d7d7decb7f73452ffda11ce167f11c473f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bba42b983ec248d24d1ded618a271c3873febb88570b8d26f0e26d4192d701ce"
 dependencies = [
  "bincode",
  "chacha20poly1305",
@@ -1139,6 +1140,76 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "zstd",
+]
+
+[[package]]
+name = "hakomemory-embed"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "hf-hub",
+ "memmap2",
+ "serde_json",
+ "tokenizers 0.22.2",
+]
+
+[[package]]
+name = "hakomemory-embed-adapter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "hakomemory-embed-srv"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hakomemory-embed",
+ "serde_json",
+]
+
+[[package]]
+name = "hakomemory-poc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hakodb",
+ "hakomemory-embed",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hakomemory-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "hakodb",
+ "hakomemory-embed",
+ "hmac",
+ "notify",
+ "serde",
+ "serde_json",
+ "sha2",
+ "streaming-iterator",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
 ]
 
 [[package]]
@@ -1689,76 +1760,6 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
-
-[[package]]
-name = "mb-embed"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "candle-core",
- "candle-nn",
- "candle-transformers",
- "hf-hub",
- "memmap2",
- "serde_json",
- "tokenizers 0.22.2",
-]
-
-[[package]]
-name = "mb-embed-adapter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "mb-embed-srv"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "mb-embed",
- "serde_json",
-]
-
-[[package]]
-name = "mb-poc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "hakodb",
- "mb-embed",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "mb-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.22.1",
- "hakodb",
- "hmac",
- "mb-embed",
- "notify",
- "serde",
- "serde_json",
- "sha2",
- "streaming-iterator",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-go",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
-]
 
 [[package]]
 name = "mdns-sd"

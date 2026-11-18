@@ -44,10 +44,10 @@ Strategi aman:
 
 ## 4. Rekomendasi arsitektur
 
-Jangan mengikat memory-box ke vendor. Pakai satu interface (sudah ada `TextEmbedder` di `mb-embed`) dengan tiga backend:
+Jangan mengikat memory-box ke vendor. Pakai satu interface (sudah ada `TextEmbedder` di `hakomemory-embed`) dengan tiga backend:
 
 1. **Local candle** (default sekarang) — cepat, gratis, privat.
-2. **HTTP self-hosted** — `mb-embed-srv` SUDAH diimplementasi; endpoint `/embed` + `/dim`; token auth. Dipakai untuk memindahkan embedder dari box 8GB i5 ke box model.
+2. **HTTP self-hosted** — `hakomemory-embed-srv` SUDAH diimplementasi; endpoint `/embed` + `/dim`; token auth. Dipakai untuk memindahkan embedder dari box 8GB i5 ke box model.
 3. **Vendor API adapter** — service kecil terpisah yang menerima format internal memory-box dan menerjemahkan ke Gemini `embedContent` / NIM `/v1/embeddings`, lengkap dengan task prefix, batching, retry, dan normalisasi. Memory-box hanya bicara HTTP ke adapter ini.
 
 Env yang diusulkan: `MEMORYBOX_EMBED_URL`, `MEMORYBOX_EMBED_TOKEN`, `MEMORYBOX_EMBED_DIM`, `MEMORYBOX_EMBED_MODEL`. Kosong = lokal.

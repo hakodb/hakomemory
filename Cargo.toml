@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/mb-poc", "crates/mb-server", "crates/mb-embed", "crates/mb-embed-adapter", "crates/mb-embed-srv"]
+members = ["crates/hakomemory-poc", "crates/hakomemory-server", "crates/hakomemory-embed", "crates/hakomemory-embed-adapter", "crates/hakomemory-embed-srv"]
 
 [workspace.package]
 edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-hakodb = { git = "https://github.com/hakodb/hakodb", tag = "v0.21.0" }
+hakodb = { version = "0.21.0" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

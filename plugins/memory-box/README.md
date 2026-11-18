@@ -19,7 +19,7 @@ Semua jaringan gagal-aman: kalau server mati, plugin pasif dan sesi tetap jalan.
 1. Jalankan server:
 
    ```bash
-   cd ~/memory-box && ./target/release/mb-server   # default http://127.0.0.1:7412
+   cd ~/memory-box && ./target/release/hakomemory-server   # default http://127.0.0.1:7412
    ```
 
 2. Daftarkan plugin di `opencode.json` project (atau global):

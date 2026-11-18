@@ -7,10 +7,10 @@
 
 ### 0.1 Hasil POC fase 1 (semua lolos)
 
-- **Wave-1 API** (`crates/mb-poc/src/main.rs`): hybrid RRF, KNN scored,
+- **Wave-1 API** (`crates/hakomemory-poc/src/main.rs`): hybrid RRF, KNN scored,
   BFS via `via_edge`, subgraph_json, graph_pagerank, graph_communities,
   persist-HNSW (reopen + await_quiescent siap ~10 ms).
-- **Embedder MiniLM pure-Rust** (`crates/mb-embed` + `src/bin/embed_poc.rs`):
+- **Embedder MiniLM pure-Rust** (`crates/hakomemory-embed` + `src/bin/embed_poc.rs`):
   candle 0.11 + hf-hub (rustls) + tokenizers; mean pooling + L2 normalize;
   end-to-end hybrid_search dengan embedding asli — hasil relevan.
 - **Perf (release, unbatched, 1 forward per teks)**: ~23 doc/s indexing,
@@ -78,7 +78,7 @@
   ekstensi tak terbaca → parser di-skip (simbol 0). Fix: rel kosong →
   pakai `file_name`. Konsekuensi: simbol/edge hasil re-scan file tunggal
   memakai rel pendek (`parser.rs`) beda dengan scan root penuh
-  (`mb-server/src/parser.rs`) → id simbol beda untuk file yang sama.
+  (`hakomemory-server/src/parser.rs`) → id simbol beda untuk file yang sama.
   **Selesai di fase lanjut**: rel dinormalisasi terhadap root project
   (koleksi `meta`) dan cleanup stale diimplementasikan — lihat §0.8.
 - Terverifikasi live: edit file → log "watcher re-scan selesai files=1" →
@@ -163,7 +163,7 @@ pooling, tidak gated, ~470 MB):
 - Embedding model-specific → ganti model WAJIB wipe data + rescan penuh.
 - Hasil eval ulang: **ID 8/12, EN 8/12** (seimbang; sebelumnya 4/10) —
   hemat 58–69%. Latensi retrieve justru turun: 39–47 ms → **29–31 ms**.
-- Contoh sanity di `crates/mb-embed/examples/sanity.rs`.
+- Contoh sanity di `crates/hakomemory-embed/examples/sanity.rs`.
 
 
 
@@ -377,7 +377,7 @@ WS   /v1/events                   progress indexing, invalidasi
 ```
 
 Catatan: `WS /v1/events` masih **draf** — belum terdaftar di `router()`
-(`crates/mb-server/src/lib.rs`). Semua klien saat ini memakai HTTP biasa.
+(`crates/hakomemory-server/src/lib.rs`). Semua klien saat ini memakai HTTP biasa.
 
 Auth: bind `127.0.0.1` default; bearer token opsional untuk LAN.
 
@@ -450,7 +450,7 @@ existing.
 
 ### 0.12 Adapter embedding online (teruji dengan mock vendor)
 
-`crates/mb-embed-adapter`: jembatan protokol internal (`/dim`, `/embed`) ke
+`crates/hakomemory-embed-adapter`: jembatan protokol internal (`/dim`, `/embed`) ke
 Cohere `/v2/embed`, OpenAI `/v1/embeddings`, atau Gemini
 `:batchEmbedContents`. Fitur:
 - API key hanya di proses adapter; server memory-box tetap vendor-agnostik.
@@ -467,7 +467,7 @@ masih terbuka.
 
 ### 0.13 Benchmark NIM vs MiniLM + provider nim (teruji)
 
-- `mb-embed-adapter` mendapat provider `nim` (`nvidia/nemotron-3-embed-1b`,
+- `hakomemory-embed-adapter` mendapat provider `nim` (`nvidia/nemotron-3-embed-1b`,
   2048d fixed, tanpa field `dimensions`), retry 429/5xx + throttle global,
   dan `MEMORYBOX_EMBED_BATCH` di indexer.
 - Benchmark adil 24 soal: MiniLM ID 9/12 vs NIM 8/12; EN 8/12 vs 8/12.
@@ -476,12 +476,12 @@ masih terbuka.
   keterbatasan rate limit, bukan bug adapter.
 
 
-### 0.14 mb-embed-srv — embedder lokal untuk deploy lintas box (teruji)
+### 0.14 hakomemory-embed-srv — embedder lokal untuk deploy lintas box (teruji)
 
-- Crate baru `crates/mb-embed-srv`: load MiniLM (candle) dari cache HF,
+- Crate baru `crates/hakomemory-embed-srv`: load MiniLM (candle) dari cache HF,
   expose `GET /dim` + `POST /embed` dengan token auth opsional, bind
   `MEMORYBOX_EMBED_HOST`/`_PORT` (default 127.0.0.1:7416).
-- Melengkapi sisi client `HttpEmbedder` di `mb-server` (sudah ada sejak §0.11).
+- Melengkapi sisi client `HttpEmbedder` di `hakomemory-server` (sudah ada sejak §0.11).
 - Teruji: tanpa token → 401; dengan token → dim 384; server remote
   (`MEMORYBOX_EMBED_URL`, DIM=384, token) berhasil scan 218 chunk, retrieve 2
   hit, latensi 33–34 ms (≈ lokal karena masih satu box saat uji).
@@ -492,7 +492,7 @@ masih terbuka.
 
 ### 0.15 P3 multi-agent scope + P4 ditutup (teruji)
 
-- Token: klaim `agents`/`sessions` (`mb-token --agents/--sessions`).
+- Token: klaim `agents`/`sessions` (`hakomemory-token --agents/--sessions`).
 - `memory/write` mewajibkan agent/session yang sesuai scope; `memory/search`
   menambah filter Eq bila diminta atau In bila token dibatasi; `memory/forget`
   memeriksa owner + agent/session. Admin bypass.

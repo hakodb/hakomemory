@@ -2,7 +2,7 @@
 
 ## Current state
 
-- The server binds **`127.0.0.1` only** (`crates/mb-server/src/main.rs`).
+- The server binds **`127.0.0.1` only** (`crates/hakomemory-server/src/main.rs`).
 - There is **no authentication or authorization** on any route. The only
   middleware is request logging (method + path + status + duration; no headers
   or bodies are logged).
@@ -32,7 +32,7 @@ No code changes. Run the server as today, and for remote access use:
 ssh -L 7412:127.0.0.1:7412 user@box
 ```
 
-The plugin and `mb-mcp` then keep using `http://127.0.0.1:7412`. This preserves
+The plugin and `hakomemory-mcp` then keep using `http://127.0.0.1:7412`. This preserves
 the existing threat model and is enough for **one trusted user**, but it does
 not identify users and is therefore not sufficient for the multi-user target.
 
@@ -69,7 +69,7 @@ Sketch (to be placed before `.with_state(...)` in `router()`):
 Client changes needed alongside it:
 - plugin `post()`: add `Authorization` header from `MEMORYBOX_TOKEN` or
   `options.token`;
-- `mb-mcp`: add the same header in `http_post_json()` from
+- `hakomemory-mcp`: add the same header in `http_post_json()` from
   `MEMORYBOX_TOKEN`;
 - docs: README, DEPLOY.md, plugin README.
 
@@ -135,7 +135,7 @@ Recommended design (not yet implemented):
    user. Gate `retrieve`, `symbols/lookup`, and `graph/context` by the same
    project authorization. Two users on the same repo share the index but not
    their memories.
-6. **Clients**: plugin `post()` and `mb-mcp` send the token header from an
+6. **Clients**: plugin `post()` and `hakomemory-mcp` send the token header from an
    env/option (`MEMORYBOX_TOKEN` or per-user config). One OpenCode process /
    MCP process = one user identity; do not mix users in one process.
 7. **Hard-isolation alternative**: one server process and data root per user.
@@ -153,7 +153,7 @@ Auth + isolation have been implemented in phases:
 
 1. `auth.rs`: HMAC-signed token (`mb1.<payload>.<sig>`) with `sub`, `roots`,
    `projects`, `exp`, `admin`; `MEMORYBOX_AUTH_SECRET` enables auth (unset =
-   legacy open mode). `mb-token` mints tokens.
+   legacy open mode). `hakomemory-token` mints tokens.
 2. Middleware verifies the token; `/healthz` stays public. All `/v1/*`
    handlers call `state.authorize_project(&auth, pid)` and `projects/open`
    validates the path against the token roots.
@@ -166,10 +166,10 @@ Auth + isolation have been implemented in phases:
    another user's or another agent's doc. Legacy documents without `user_id`
    are hidden from non-admin users until stamped via
    `POST /v1/admin/backfill` (admin only).
-5. Plugin and `mb-mcp` send `Authorization: Bearer` from `MEMORYBOX_TOKEN`
+5. Plugin and `hakomemory-mcp` send `Authorization: Bearer` from `MEMORYBOX_TOKEN`
    (or `options.token`) and can open by `MEMORYBOX_ALIAS` / `options.alias`.
    Tokens carry a `jti` and can be revoked with `POST /v1/admin/revoke`
-   (rotation = mint a new token with `mb-token`, then revoke the old one).
+   (rotation = mint a new token with `hakomemory-token`, then revoke the old one).
 6. `MEMORYBOX_RATE_PER_MIN` sets a per-user fixed-window (60 s) limit;
    exceeding it returns HTTP 429. `/healthz` is exempt.
 
@@ -185,7 +185,7 @@ workaround and its "fewer than k hits" caveat are gone. Graph responses use
 
 ## Implemented: multi-agent scope (P3)
 
-Tokens may carry `agents` and `sessions` claims (`mb-token --agents a1,a2
+Tokens may carry `agents` and `sessions` claims (`hakomemory-token --agents a1,a2
 --sessions s1`):
 
 - token with `agents=[a1]` can only write with `agent_id=a1`, only sees `a1`

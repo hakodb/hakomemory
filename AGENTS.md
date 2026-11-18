@@ -23,9 +23,9 @@ subagent `.opencode/agents/memory-box.md` encode the same workflow.
 ## Build, test, run
 
 ```bash
-cargo build --release -p mb-server        # builds mb-server + mb-mcp
+cargo build --release -p hakomemory-server        # builds hakomemory-server + hakomemory-mcp
 cargo test --workspace                    # unit + offline /v1/* integration tests
-MEMORYBOX_DATA=~/.memory-box ./target/release/mb-server
+MEMORYBOX_DATA=~/.memory-box ./target/release/hakomemory-server
 bash scripts/test-distill-e2e.sh          # self-learning chain with mock LLM
 python3 scripts/eval-token.py             # token-saving evaluation
 ```
@@ -35,12 +35,12 @@ model downloads to `cargo test`.
 
 ## Code layout
 
-- `crates/mb-embed/` — candle embedding backend + `MockEmbedder` for tests.
-- `crates/mb-server/src/indexer.rs` — chunking, symbols, call-graph edges,
+- `crates/hakomemory-embed/` — candle embedding backend + `MockEmbedder` for tests.
+- `crates/hakomemory-server/src/indexer.rs` — chunking, symbols, call-graph edges,
   stale cleanup, post-write `settle_edges` reconciliation.
-- `crates/mb-server/src/api.rs` — all `/v1/*` handlers.
-- `crates/mb-server/src/lib.rs` — router used by both binary and tests.
-- `crates/mb-server/src/bin/mb-mcp.rs` — stdio MCP adapter (no external crates).
+- `crates/hakomemory-server/src/api.rs` — all `/v1/*` handlers.
+- `crates/hakomemory-server/src/lib.rs` — router used by both binary and tests.
+- `crates/hakomemory-server/src/bin/hakomemory-mcp.rs` — stdio MCP adapter (no external crates).
 - `plugins/memory-box/index.ts` — OpenCode V2 plugin; plain `{ id, setup }`
   export with **no imports** (the target box has no node/npm).
 - `docs/PLAN.md` — design log; `docs/AUTH.md` — auth assessment.
@@ -48,7 +48,7 @@ model downloads to `cargo test`.
 ## Conventions
 
 - Add new endpoints in `api.rs` **and** register them in `router()` (lib.rs)
-  **and** cover them in `crates/mb-server/tests/api.rs`.
+  **and** cover them in `crates/hakomemory-server/tests/api.rs`.
 - Keep all network calls in the plugin fail-soft: a dead server must never
   break an OpenCode session.
 - HakoDB indexes must exist before the first write. `Hako::open` must run

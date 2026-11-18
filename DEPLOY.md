@@ -17,8 +17,8 @@ murni Rust; plugin OpenCode hanya butuh runtime OpenCode (bukan Node).
 ```bash
 git clone <repo memory-box> ~/memory-box
 cd ~/memory-box
-cargo build --release -p mb-server
-# hasil: target/release/mb-server + target/release/mb-mcp
+cargo build --release -p hakomemory-server
+# hasil: target/release/hakomemory-server + target/release/hakomemory-mcp
 ```
 
 `Cargo.lock` mengunci hakodb `v0.20.8` — jangan dihapus jika ingin hasil
@@ -31,7 +31,7 @@ MEMORYBOX_DATA=~/.memory-box \
 MEMORYBOX_PORT=7412 \
 MEMORYBOX_MODEL=multi \
 MEMORYBOX_WATCH=1 \
-./target/release/mb-server
+./target/release/hakomemory-server
 ```
 
 Default: data `~/.memory-box`, port `7412`, model `multi`
@@ -67,7 +67,7 @@ After=network-online.target
 Environment=MEMORYBOX_DATA=%h/.memory-box
 Environment=MEMORYBOX_PORT=7412
 Environment=MEMORYBOX_MODEL=multi
-ExecStart=%h/memory-box/target/release/mb-server
+ExecStart=%h/memory-box/target/release/hakomemory-server
 Restart=on-failure
 
 [Install]
@@ -133,13 +133,13 @@ menyebut file+baris hasilnya.
 
 ## 6. Pasang MCP adapter (opsional)
 
-Salin `target/release/mb-mcp`, lalu daftarkan ke klien MCP:
+Salin `target/release/hakomemory-mcp`, lalu daftarkan ke klien MCP:
 
 ```json
 {
   "mcpServers": {
     "memory-box": {
-      "command": "/path/ke/memory-box/target/release/mb-mcp",
+      "command": "/path/ke/memory-box/target/release/hakomemory-mcp",
       "env": {
         "MEMORYBOX_PROJECT": "/path/ke/codebase",
         "MEMORYBOX_URL": "http://127.0.0.1:7412"
@@ -166,7 +166,7 @@ export MEMORYBOX_AUTH_SECRET=<random-secret>
 # server: same binary, auth enabled automatically
 
 # mint a token for one user (secret from env, never argv)
-MEMORYBOX_AUTH_SECRET=<random-secret> ./target/release/mb-token \
+MEMORYBOX_AUTH_SECRET=<random-secret> ./target/release/hakomemory-token \
   --sub alice --roots /home/alice/project --projects <pid> --days 30
 
 # client (plugin config or env)
@@ -183,7 +183,7 @@ without `user_id` are visible to admin tokens only. See `docs/AUTH.md`.
 
 ```bash
 # rotate: mint a new token, then revoke the old one
-MEMORYBOX_AUTH_SECRET=<secret> ./target/release/mb-token \
+MEMORYBOX_AUTH_SECRET=<secret> ./target/release/hakomemory-token \
   --sub alice --jti alice-2026-02 --roots /home/alice/proj --days 30
 curl -X POST http://127.0.0.1:7412/v1/admin/revoke -H 'content-type: application/json' \
   -H 'Authorization: Bearer <ADMIN_TOKEN>' -d '{"jti":"alice-2026-01"}'
@@ -222,7 +222,7 @@ memakai dimensi tersebut. HakoDB mendukung 1..=4096 dimensi.
 
 ## Online embedding adapter (opsional)
 
-`mb-embed-adapter` menerjemahkan protokol internal `/dim` + `/embed` ke API
+`hakomemory-embed-adapter` menerjemahkan protokol internal `/dim` + `/embed` ke API
 vendor. API key hanya tersimpan di proses adapter.
 
 ```bash
@@ -230,7 +230,7 @@ vendor. API key hanya tersimpan di proses adapter.
 MEMORYBOX_ADAPTER_PROVIDER=cohere \
 MEMORYBOX_ADAPTER_API_KEY=<key> \
 MEMORYBOX_ADAPTER_MODEL=embed-multilingual-light-v3.0 \
-MEMORYBOX_ADAPTER_DIM=384 ./target/release/mb-embed-adapter
+MEMORYBOX_ADAPTER_DIM=384 ./target/release/hakomemory-embed-adapter
 
 # OpenAI (MRL shortened)
 MEMORYBOX_ADAPTER_PROVIDER=openai MEMORYBOX_ADAPTER_API_KEY=<key> \
@@ -263,7 +263,7 @@ Box A (model):
 ```bash
 MEMORYBOX_EMBED_HOST=10.10.8.4 MEMORYBOX_EMBED_PORT=7416 \
 MEMORYBOX_EMBED_TOKEN=<shared-token> \
-./target/release/mb-embed-srv
+./target/release/hakomemory-embed-srv
 ```
 
 Box B (server):
@@ -273,11 +273,11 @@ MEMORYBOX_HOST=0.0.0.0 MEMORYBOX_PORT=7412 \
 MEMORYBOX_AUTH_SECRET=<secret> \
 MEMORYBOX_EMBED_URL=http://10.10.8.4:7416 \
 MEMORYBOX_EMBED_DIM=384 MEMORYBOX_EMBED_TOKEN=<shared-token> \
-./target/release/mb-server
+./target/release/hakomemory-server
 ```
 
 Catatan:
-- `mb-embed-srv` hanya melayani `/dim` + `/embed`; token wajib bila diset.
+- `hakomemory-embed-srv` hanya melayani `/dim` + `/embed`; token wajib bila diset.
 - Copy `projects/` dari box A ke box B saat server stopped, atau biarkan rescan
   (project id berbasis path canonical — path harus sama).
 - Batasi akses: iptables hanya loopback + subnet internal untuk 7412/7416.

@@ -46,18 +46,18 @@ def retrieve(pid_, query, k=5):
 
 # (pertanyaan, path yang diharapkan di top-5, keyword grep yang khas)
 CASES = [
-    ("bagaimana embedder melakukan mean pooling dan normalisasi L2?", "crates/mb-embed/src/lib.rs", "pooling"),
-    ("di mana skema koleksi dan index dibuat?", "crates/mb-server/src/store.rs", "create_vector_index"),
-    ("bagaimana chunking per baris dibatasi ukurannya?", "crates/mb-server/src/indexer.rs", "MAX_CHUNK_LINES"),
-    ("bagaimana hybrid search RRF dipanggil untuk retrieval kode?", "crates/mb-server/src/api.rs", "hybrid_search"),
-    ("bagaimana watcher melakukan debounce event inotify?", "crates/mb-server/src/watcher.rs", "DEBOUNCE"),
+    ("bagaimana embedder melakukan mean pooling dan normalisasi L2?", "crates/hakomemory-embed/src/lib.rs", "pooling"),
+    ("di mana skema koleksi dan index dibuat?", "crates/hakomemory-server/src/store.rs", "create_vector_index"),
+    ("bagaimana chunking per baris dibatasi ukurannya?", "crates/hakomemory-server/src/indexer.rs", "MAX_CHUNK_LINES"),
+    ("bagaimana hybrid search RRF dipanggil untuk retrieval kode?", "crates/hakomemory-server/src/api.rs", "hybrid_search"),
+    ("bagaimana watcher melakukan debounce event inotify?", "crates/hakomemory-server/src/watcher.rs", "DEBOUNCE"),
     ("bagaimana distilasi pelajaran dipanggil saat kompaksi?", "plugins/memory-box/index.ts", "distill"),
-    ("bagaimana resolusi callee di call-graph memilih kandidat?", "crates/mb-server/src/indexer.rs", "by_name"),
-    ("bagaimana HakoDB dibuka per project dan kenapa urutannya penting?", "crates/mb-server/src/store.rs", "open_project"),
+    ("bagaimana resolusi callee di call-graph memilih kandidat?", "crates/hakomemory-server/src/indexer.rs", "by_name"),
+    ("bagaimana HakoDB dibuka per project dan kenapa urutannya penting?", "crates/hakomemory-server/src/store.rs", "open_project"),
     ("bagaimana hook context menyisipkan konteks ke system prompt?", "plugins/memory-box/index.ts", "memory-box project"),
-    ("bagaimana cleanup simbol stale bekerja saat file berubah?", "crates/mb-server/src/indexer.rs", "stale_deletes"),
-    ("bagaimana adapter MCP merender subgraph edge-doc?", "crates/mb-server/src/bin/mb-mcp.rs", "deref"),
-    ("bagaimana projek id dihitung dari path?", "crates/mb-server/src/store.rs", "project_id"),
+    ("bagaimana cleanup simbol stale bekerja saat file berubah?", "crates/hakomemory-server/src/indexer.rs", "stale_deletes"),
+    ("bagaimana adapter MCP merender subgraph edge-doc?", "crates/hakomemory-server/src/bin/hakomemory-mcp.rs", "deref"),
+    ("bagaimana projek id dihitung dari path?", "crates/hakomemory-server/src/store.rs", "project_id"),
 ]
 
 def tok(chars):
@@ -130,18 +130,18 @@ def run(cases):
     print("tersimpan: /tmp/mb-eval-results.json")
 
 EN_CASES = [
-    ("how does the embedder do mean pooling and L2 normalization?", "crates/mb-embed/src/lib.rs", "pooling"),
-    ("where are the collection schema and indexes created?", "crates/mb-server/src/store.rs", "create_vector_index"),
-    ("how is line chunking bounded in size?", "crates/mb-server/src/indexer.rs", "MAX_CHUNK_LINES"),
-    ("how is hybrid RRF search called for code retrieval?", "crates/mb-server/src/api.rs", "hybrid_search"),
-    ("how does the watcher debounce inotify events?", "crates/mb-server/src/watcher.rs", "DEBOUNCE"),
+    ("how does the embedder do mean pooling and L2 normalization?", "crates/hakomemory-embed/src/lib.rs", "pooling"),
+    ("where are the collection schema and indexes created?", "crates/hakomemory-server/src/store.rs", "create_vector_index"),
+    ("how is line chunking bounded in size?", "crates/hakomemory-server/src/indexer.rs", "MAX_CHUNK_LINES"),
+    ("how is hybrid RRF search called for code retrieval?", "crates/hakomemory-server/src/api.rs", "hybrid_search"),
+    ("how does the watcher debounce inotify events?", "crates/hakomemory-server/src/watcher.rs", "DEBOUNCE"),
     ("how is the lesson distillation invoked during compaction?", "plugins/memory-box/index.ts", "distill"),
-    ("how does call-graph callee resolution pick candidates?", "crates/mb-server/src/indexer.rs", "by_name"),
-    ("how is HakoDB opened per project and why does order matter?", "crates/mb-server/src/store.rs", "open_project"),
+    ("how does call-graph callee resolution pick candidates?", "crates/hakomemory-server/src/indexer.rs", "by_name"),
+    ("how is HakoDB opened per project and why does order matter?", "crates/hakomemory-server/src/store.rs", "open_project"),
     ("how does the context hook inject context into the system prompt?", "plugins/memory-box/index.ts", "memory-box project"),
-    ("how does stale symbol cleanup work when a file changes?", "crates/mb-server/src/indexer.rs", "stale_deletes"),
-    ("how does the MCP adapter render edge-doc subgraphs?", "crates/mb-server/src/bin/mb-mcp.rs", "deref"),
-    ("how is the project id computed from a path?", "crates/mb-server/src/store.rs", "project_id"),
+    ("how does stale symbol cleanup work when a file changes?", "crates/hakomemory-server/src/indexer.rs", "stale_deletes"),
+    ("how does the MCP adapter render edge-doc subgraphs?", "crates/hakomemory-server/src/bin/hakomemory-mcp.rs", "deref"),
+    ("how is the project id computed from a path?", "crates/hakomemory-server/src/store.rs", "project_id"),
 ]
 
 def main():

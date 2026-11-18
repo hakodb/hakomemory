@@ -4,4 +4,4 @@ set -a
 source "$HOME/.memory-box/auth.env"
 set +a
 cd "$HOME/memory-box" || exit 1
-exec "$HOME/memory-box/target/release/mb-server"
+exec "$HOME/memory-box/target/release/hakomemory-server"

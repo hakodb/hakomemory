@@ -14,10 +14,10 @@ work log. HakoDB v0.21.0 adoption (issue #217) is tracked in
 
 ```
 crates/
-  mb-poc/       Phase-1 POC: HakoDB wave-1 API + local embedder (done)
-  mb-embed/     local text embedding: multilingual MiniLM 384d (candle, pure Rust)
-  mb-server/    axum server + mb-mcp stdio MCP adapter
-  mb-embed-adapter/  internal HTTP -> Cohere/OpenAI/Gemini embedding bridge
+  hakomemory-poc/       Phase-1 POC: HakoDB wave-1 API + local embedder (done)
+  hakomemory-embed/     local text embedding: multilingual MiniLM 384d (candle, pure Rust)
+  hakomemory-server/    axum server + hakomemory-mcp stdio MCP adapter
+  hakomemory-embed-adapter/  internal HTTP -> Cohere/OpenAI/Gemini embedding bridge
 plugins/
   memory-box/   OpenCode V2 plugin (TypeScript, no npm needed)
 .opencode/
@@ -42,7 +42,7 @@ docs/           design log + auth assessment
       (LLM call itself was blocked by free-tier quota in this environment)
 - [x] Stale symbol/edge cleanup + project-root-relative paths
 - [x] Cross-file edge re-resolution (follows moved/removed callees)
-- [x] Thin MCP adapter (`mb-mcp`, stdio JSON-RPC)
+- [x] Thin MCP adapter (`hakomemory-mcp`, stdio JSON-RPC)
 - [x] Token-saving evaluation vs grep/read ([scripts/eval-token.py](scripts/eval-token.py))
 - [x] Automated integration tests for all `/v1/*` endpoints
 - [x] Multi-user auth: signed tokens, project/path scope, per-user memory,
@@ -51,9 +51,9 @@ docs/           design log + auth assessment
 - [x] Safe LRU: `open_exclusive`, Weak watcher, idle TTL + strong-count guard
 - [x] Model-agnostic embeddings: persisted `EmbeddingSpec` (384–4096d), remote
       HTTP embedder backend, hard error on dimension mismatch
-- [x] Vendor adapter: `mb-embed-adapter` bridges internal HTTP to Cohere,
+- [x] Vendor adapter: `hakomemory-embed-adapter` bridges internal HTTP to Cohere,
       OpenAI, Gemini, or NVIDIA NIM with query/document roles
-- [x] `mb-embed-srv`: local MiniLM exposed over internal HTTP for cross-box deploy
+- [x] `hakomemory-embed-srv`: local MiniLM exposed over internal HTTP for cross-box deploy
 - [x] Agent guidance: skill, read-only subagent, `AGENTS.md`
 - [x] Deployment guide ([DEPLOY.md](DEPLOY.md))
 
@@ -61,10 +61,10 @@ docs/           design log + auth assessment
 
 ```bash
 # 1. build (Rust stable; no node/npm)
-cargo build --release -p mb-server
+cargo build --release -p hakomemory-server
 
 # 2. run the server (binds 127.0.0.1:7412)
-MEMORYBOX_DATA=~/.memory-box ./target/release/mb-server
+MEMORYBOX_DATA=~/.memory-box ./target/release/hakomemory-server
 
 # 3. open & index a codebase
 curl -s -X POST http://127.0.0.1:7412/v1/projects/open \
@@ -100,8 +100,8 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_EMBED_DIM` | required if URL | vector dimension of the HTTP embedder |
 | `MEMORYBOX_EMBED_TOKEN` | unset | bearer token for the HTTP embedder |
 | `MEMORYBOX_EMBED_MODEL` | `http-embedder` | model id recorded in project spec |
-| `MEMORYBOX_EMBED_HOST` | `127.0.0.1` | `mb-embed-srv` bind host |
-| `MEMORYBOX_EMBED_PORT` | `7416` | `mb-embed-srv` bind port |
+| `MEMORYBOX_EMBED_HOST` | `127.0.0.1` | `hakomemory-embed-srv` bind host |
+| `MEMORYBOX_EMBED_PORT` | `7416` | `hakomemory-embed-srv` bind port |
 | `MEMORYBOX_EMBED_TOKEN` | unset | shared token between server and embedder |
 | `MEMORYBOX_ADAPTER_PROVIDER` | — | adapter: `cohere\|openai\|gemini\|nim` |
 | `MEMORYBOX_ADAPTER_API_KEY` | — | vendor API key (adapter process only) |
@@ -114,7 +114,7 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_PROJECT` | session directory | codebase path (plugin / MCP) |
 
 Set `MEMORYBOX_AUTH_SECRET` for multi-user deployments and mint per-user
-tokens with `mb-token`. Without it the server keeps the legacy open/local
+tokens with `hakomemory-token`. Without it the server keeps the legacy open/local
 behavior. See [docs/AUTH.md](docs/AUTH.md) for the isolation design.
 
 ## API
@@ -142,7 +142,7 @@ python3 scripts/eval-token.py          # token savings vs grep/read
 ```
 
 Integration tests live in
-[crates/mb-server/tests/api.rs](crates/mb-server/tests/api.rs) and use a
+[crates/hakomemory-server/tests/api.rs](crates/hakomemory-server/tests/api.rs) and use a
 deterministic mock embedder, so CI needs neither network nor the 470 MB model.
 
 ## License

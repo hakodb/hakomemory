@@ -10,6 +10,7 @@
 pub mod docs;
 pub mod embed;
 pub mod error;
+pub mod graph;
 pub mod indexer;
 pub mod parser;
 pub mod retrieval;

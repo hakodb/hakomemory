@@ -54,6 +54,13 @@ with a `citation` object; `documents/scan` skips unchanged files via the
 modes, pushes filters into the engine before candidate truncation, and applies
 `budget_tokens` before returning hits.
 
+Generic graph endpoints: `/v1/graph/rank`, `/community`, `/components`,
+`/degrees`, `/path`, `/subgraph`, `/cycle`, `/topo` and `/export`. All accept
+`collection`, `seed`, `via`, `direction`, `max_depth`, `limit`, `projection`
+(and `damping`/`top` for PageRank). Responses are normalized to
+`{entities, relations}` with references resolved server-side; no raw
+`__ref__` objects reach clients.
+
 ## Status
 
 - [x] Repo init, MIT license, design log

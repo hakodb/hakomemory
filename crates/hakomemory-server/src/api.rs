@@ -42,6 +42,18 @@ fn auth_err(code: StatusCode) -> (StatusCode, Json<serde_json::Value>) {
     (code, Json(serde_json::json!({ "error": msg })))
 }
 
+/// Lexical check plus canonical check: `..` and symlinks must not escape the
+/// token roots. Both the caller's spelling and the canonical form are checked
+/// because Windows canonicalize produces 8.3 short paths.
+fn validate_ingest_path(
+    auth: &AuthContext,
+    path: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    // require_path checks both lexical and canonical forms (symlink-safe,
+    // 8.3-path tolerant on Windows).
+    auth.require_path(path).map_err(auth_err)
+}
+
 #[derive(Deserialize)]
 pub struct ProjectsOpen {
     /// path canonical project (kompatibel dengan klien lama)
@@ -130,8 +142,11 @@ pub async fn index_scan(
     Json(input): Json<IndexScan>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    validate_ingest_path(&auth, &input.path)?;
     let store = state.store.clone();
     let embedder = state.embedder.clone();
+    // Feed the original path to the indexer: canonicalize on Windows yields
+    // short (8.3) paths that break relative-path computation against `meta`.
     let (pid, path) = (input.project_id.clone(), input.path.clone());
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
@@ -434,7 +449,7 @@ pub async fn memory_write(
                 Value::String(serde_json::to_string(&md).unwrap_or_default()),
             );
         }
-        db.put(&col, &id, &d)?;
+        db.put(col, &id, &d)?;
         Ok::<_, anyhow::Error>(serde_json::json!({ "id": id, "collection": col }))
     })
     .await
@@ -580,7 +595,7 @@ pub async fn memory_forget(
     let allowed_sessions = auth.allowed_sessions();
     let res = tokio::task::spawn_blocking(move || {
         let db = store.get(&pid)?;
-        if let Some(doc) = db.get(&col, &id)? {
+        if let Some(doc) = db.get(col, &id)? {
             let field_eq = |doc: &HakoDoc, field: &str, expected: &str| {
                 matches!(doc.get(field), Some(Value::String(v)) if v == expected)
             };
@@ -589,19 +604,19 @@ pub async fn memory_forget(
             };
             let allowed = is_admin
                 || (field_eq(&doc, "user_id", &sub)
-                    && req_agent.as_deref().map_or(true, |a| field_eq(&doc, "agent_id", a))
+                    && req_agent.as_deref().is_none_or(|a| field_eq(&doc, "agent_id", a))
                     && allowed_agents
                         .as_ref()
-                        .map_or(true, |list| field_in(&doc, "agent_id", list))
-                    && req_session.as_deref().map_or(true, |s| field_eq(&doc, "session_id", s))
+                        .is_none_or(|list| field_in(&doc, "agent_id", list))
+                    && req_session.as_deref().is_none_or(|s| field_eq(&doc, "session_id", s))
                     && allowed_sessions
                         .as_ref()
-                        .map_or(true, |list| field_in(&doc, "session_id", list)));
+                        .is_none_or(|list| field_in(&doc, "session_id", list)));
             if !allowed {
                 return Ok::<_, anyhow::Error>(serde_json::json!({ "forbidden": true }));
             }
         }
-        db.delete(&col, &id)?; // soft delete (restoreable) — hakodb v0.20.0
+        db.delete(col, &id)?; // soft delete (restoreable) — hakodb v0.20.0
         Ok::<_, anyhow::Error>(serde_json::json!({ "forgotten": id }))
     })
     .await

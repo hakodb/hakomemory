@@ -1,4 +1,4 @@
-//! Integration test authN + otorisasi project/path (Fase 1–2).
+//! Integration test authN + otorisasi project/path (Fase 1â€“2).
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -121,7 +121,7 @@ async fn write_mem(
     .await
 }
 
-fn app_with_auth(dir: &PathBuf) -> Router {
+fn app_with_auth(dir: &std::path::Path) -> Router {
     let state = AppState::open_mock_with_auth(
         dir,
         AuthConfig::Enabled {
@@ -233,7 +233,7 @@ async fn alias_terikat_user_dan_pid_diotorisasi_lewat_root() {
     let app = app_with_auth(&dir);
 
     // user A mendaftarkan alias "work" dengan path di root-nya
-    let tok_a = token("alice", &[], &[canonical.clone()], false);
+    let tok_a = token("alice", &[], std::slice::from_ref(&canonical), false);
     let (status, body) = call_json(
         &app,
         "POST",
@@ -245,7 +245,7 @@ async fn alias_terikat_user_dan_pid_diotorisasi_lewat_root() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["project_id"], pid);
 
-    // token A hanya punya root (tanpa projects) → alias + otorisasi lewat by_pid
+    // token A hanya punya root (tanpa projects) â†’ alias + otorisasi lewat by_pid
     assert_eq!(
         call(
             &app,
@@ -269,7 +269,7 @@ async fn alias_terikat_user_dan_pid_diotorisasi_lewat_root() {
         StatusCode::OK
     );
 
-    // user B tidak bisa memakai alias milik A,也不能 menebak path di luar root-nya
+    // user B tidak bisa memakai alias milik A,ä¹Ÿä¸èƒ½ menebak path di luar root-nya
     let other = temp_root();
     let tok_b = token("bob", &[], &[other.to_string_lossy().to_string()], false);
     assert_eq!(
@@ -302,8 +302,8 @@ async fn memory_terisolasi_per_user() {
     let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
     let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
     let app = app_with_auth(&dir);
-    let tok_a = token("alice", &[], &[canonical.clone()], false);
-    let tok_b = token("bob", &[], &[canonical.clone()], false);
+    let tok_a = token("alice", &[], std::slice::from_ref(&canonical), false);
+    let tok_b = token("bob", &[], std::slice::from_ref(&canonical), false);
 
     assert_eq!(
         call(
@@ -324,7 +324,7 @@ async fn memory_terisolasi_per_user() {
         json!({
             "project_id": pid,
             "kind": "semantic",
-            "text": "rahasia khusus alice: kunci部署 abc123",
+            "text": "rahasia khusus alice: kunciéƒ¨ç½² abc123",
             "agent_id": "agent-a",
             "session_id": "ses-1"
         }),
@@ -336,7 +336,7 @@ async fn memory_terisolasi_per_user() {
 
     let body = json!({ "project_id": pid, "kind": "semantic", "query": "rahasia alice kunci", "k": 5 });
     let (_, a) = call_json(&app, "POST", "/v1/memory/search", body.clone(), Some(&tok_a)).await;
-    assert!(a["hits"].as_array().unwrap().len() >= 1, "alice harus melihat memori sendiri");
+    assert!(!a["hits"].as_array().unwrap().is_empty(), "alice harus melihat memori sendiri");
     let (_, b) = call_json(&app, "POST", "/v1/memory/search", body, Some(&tok_b)).await;
     assert!(b["hits"].as_array().unwrap().is_empty(), "bob tidak boleh melihat memori alice: {b}");
 
@@ -363,8 +363,8 @@ async fn backfill_owner_hanya_admin_dan_menyembunyikan_legacy() {
     )
     .unwrap();
     let app = router(state.clone());
-    let alice = token("alice", &[], &[canonical.clone()], false);
-    let bob = token("bob", &[], &[canonical.clone()], false);
+    let alice = token("alice", &[], std::slice::from_ref(&canonical), false);
+    let bob = token("bob", &[], std::slice::from_ref(&canonical), false);
     let admin = token("admin", &[], &[], true);
 
     assert_eq!(
@@ -397,7 +397,7 @@ async fn backfill_owner_hanya_admin_dan_menyembunyikan_legacy() {
 
     let body = json!({ "project_id": pid, "kind": "semantic", "query": "rahasia legacy", "k": 5 });
     let (_, a) = call_json(&app, "POST", "/v1/memory/search", body.clone(), Some(&alice)).await;
-    assert!(a["hits"].as_array().unwrap().len() >= 1, "alice harus melihat after backfill: {a}");
+    assert!(!a["hits"].as_array().unwrap().is_empty(), "alice harus melihat after backfill: {a}");
     let (_, b) = call_json(&app, "POST", "/v1/memory/search", body, Some(&bob)).await;
     assert!(b["hits"].as_array().unwrap().is_empty(), "bob tidak boleh: {b}");
 }
@@ -414,7 +414,7 @@ async fn revokasi_token_berlaku() {
     .unwrap();
     let app = router(state.clone());
     let admin = token("admin", &[], &[], true);
-    let alice = token("alice", &[&pid], &[canonical.clone()], false);
+    let alice = token("alice", &[&pid], std::slice::from_ref(&canonical), false);
 
     assert_eq!(
         call(
@@ -469,7 +469,7 @@ async fn rate_limit_per_user() {
     )
     .unwrap();
     let app = router(state);
-    let tok = token("alice", &[&pid], &[canonical.clone()], false);
+    let tok = token("alice", &[&pid], std::slice::from_ref(&canonical), false);
     let body = json!({ "project_id": pid, "query": "x", "k": 1 });
     assert_eq!(
         call(
@@ -500,8 +500,8 @@ async fn filtered_search_menjamin_full_k() {
     let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
     let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
     let app = app_with_auth(&dir);
-    let alice = token("alice", &[], &[canonical.clone()], false);
-    let bob = token("bob", &[], &[canonical.clone()], false);
+    let alice = token("alice", &[], std::slice::from_ref(&canonical), false);
+    let bob = token("bob", &[], std::slice::from_ref(&canonical), false);
     assert_eq!(
         call(
             &app, "POST", "/v1/projects/open",
@@ -548,8 +548,8 @@ async fn memory_scope_agent_dan_session() {
     let canonical = std::fs::canonicalize(&dir).unwrap().to_string_lossy().to_string();
     let pid = hex12(&sha2::Sha256::digest(canonical.as_bytes()));
     let app = app_with_auth(&dir);
-    let alice = token_scoped("alice", &[&pid], &[canonical.clone()], false, &["agent-a"], &[]);
-    let bob = token_scoped("bob", &[&pid], &[canonical.clone()], false, &["agent-b"], &[]);
+    let alice = token_scoped("alice", &[&pid], std::slice::from_ref(&canonical), false, &["agent-a"], &[]);
+    let bob = token_scoped("bob", &[&pid], std::slice::from_ref(&canonical), false, &["agent-b"], &[]);
     let admin = token("admin", &[], &[], true);
     assert_eq!(
         call(
@@ -618,4 +618,46 @@ async fn memory_scope_agent_dan_session() {
 
 fn hex12(d: &[u8]) -> String {
     d.iter().take(6).map(|b| format!("{b:02x}")).collect()
+}
+
+#[tokio::test]
+async fn index_scan_path_di_luar_root_ditolak() {
+    let dir = temp_root();      // server data dir
+    let root = temp_root();     // project root allowed by the token
+    let outside = temp_root();
+    std::fs::write(root.join("app.rs"), "pub fn ok() {}\n").unwrap();
+    std::fs::write(outside.join("secret.rs"), "pub fn secret() {}\n").unwrap();
+    let app = app_with_auth(&dir);
+    let canon = std::fs::canonicalize(&root).unwrap();
+    let pid = hex12(&sha2::Sha256::digest(canon.to_string_lossy().as_bytes()));
+    let tok = token("alice", &[&pid], &[root.to_string_lossy().to_string()], false);
+    assert_eq!(
+        call(&app, "POST", "/v1/projects/open", json!({ "path": root.to_string_lossy() }), Some(&tok)).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/index/scan",
+            json!({ "project_id": pid, "path": outside.to_string_lossy() }),
+            Some(&tok),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+        "path di luar roots tidak boleh diindeks"
+    );
+    let (inside_status, inside_body) = call_json(
+        &app,
+        "POST",
+        "/v1/index/scan",
+        json!({ "project_id": pid, "path": root.to_string_lossy() }),
+        Some(&tok),
+    )
+    .await;
+    assert_eq!(
+        inside_status,
+        StatusCode::OK,
+        "path di dalam roots tetap bisa diindeks: {inside_body}"
+    );
 }

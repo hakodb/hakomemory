@@ -68,11 +68,11 @@ fn ext_of(rel: &str) -> Option<&str> {
 
 /// rel file terhadap root project (rel_base). File == base → nama file
 /// (scan file tunggal); di luar base → path absolut.
+type FileChunks = Vec<(String, String, Vec<(usize, String)>)>;
+
 fn rel_of(file: &Path, rel_base: &Path) -> String {
-    let rel = file
-        .strip_prefix(rel_base)
-        .map(|r| r.to_string_lossy().to_string())
-        .unwrap_or_else(|_| file.to_string_lossy().to_string());
+    let rel_path = relative_of(file, rel_base).unwrap_or_else(|| file.to_path_buf());
+    let rel = rel_path.to_string_lossy().replace('\\', "/");
     if rel.is_empty() {
         file.file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -80,6 +80,17 @@ fn rel_of(file: &Path, rel_base: &Path) -> String {
     } else {
         rel
     }
+}
+
+/// Relative path against the project root. Falls back to canonical forms so
+/// Windows 8.3 short paths and differently-spelled roots still compare equal.
+fn relative_of(file: &Path, rel_base: &Path) -> Option<std::path::PathBuf> {
+    if let Ok(rel) = file.strip_prefix(rel_base) {
+        return Some(rel.to_path_buf());
+    }
+    let canonical_file = std::fs::canonicalize(file).ok()?;
+    let canonical_base = std::fs::canonicalize(rel_base).ok()?;
+    canonical_file.strip_prefix(canonical_base).ok().map(|p| p.to_path_buf())
 }
 
 fn chunk_lines(content: &str) -> Vec<(usize, String)> {
@@ -208,14 +219,12 @@ fn resolve_callee(
         .limit(10);
     let rows = db.query(q).map_err(|_| anyhow::anyhow!("query symbols")).ok()?;
     let pick = |filter_path: Option<&str>| -> Option<(String, String)> {
-        rows.iter()
-            .filter(|(_, d)| {
+        rows.iter().find(|(_, d)| {
                 filter_path.is_none()
                     || d.get("path")
                         .and_then(|v| match v { Value::String(s) => Some(s.as_str()), _ => None })
                         == filter_path
             })
-            .next()
             .and_then(|(id, d)| {
                 let path = d.get("path")
                     .and_then(|v| match v { Value::String(s) => Some(s.clone()), _ => None })?;
@@ -264,7 +273,7 @@ fn stale_deletes(db: &Hako, keep: &KeepMap, removed_rels: &[String]) -> Result<V
                 .where_filter("path", Operator::Eq, Value::String(rel.to_string()))
                 .limit(20_000);
             for (id, doc) in db.query(q).map_err(|e| anyhow::anyhow!("{e}"))? {
-                let regen = keep_edges.map_or(false, |s| s.contains(&id));
+                let regen = keep_edges.is_some_and(|s| s.contains(&id));
                 let old_format = doc.get("callee").is_none();
                 if !regen || old_format {
                     dels.push(BatchMutation::Delete {
@@ -298,12 +307,12 @@ pub fn scan(
     if target.is_dir() {
         // prefix rel terhadap root project — untuk mendeteksi file lama
         // yang hilang dari disk (misal git mv saat server tidak jalan)
-        scan_prefix = match target.strip_prefix(rel_base) {
-            Ok(rel) => {
-                let s = rel.to_string_lossy().trim_matches('/').to_string();
+        scan_prefix = match relative_of(target, rel_base) {
+            Some(rel) => {
+                let s = rel.to_string_lossy().replace('\\', "/").trim_matches('/').to_string();
                 Some(if s.is_empty() { String::new() } else { format!("{s}/") })
             }
-            Err(_) => None,
+            None => None,
         };
         push_file_rec(&mut files, target);
     } else if target.is_file() {
@@ -316,7 +325,7 @@ pub fn scan(
     }
 
     // ---- pass 1: chunking ----
-    let mut file_data: Vec<(String, String, Vec<(usize, String)>)> = Vec::new();
+    let mut file_data: FileChunks = Vec::new();
     let mut chunk_mutations: Vec<(String, HakoDoc, String)> = Vec::new(); // (id, doc, path|text)
     let mut keep: KeepMap = HashMap::new();
 
@@ -504,6 +513,7 @@ pub fn scan(
 ///  - callee nama tidak ada lagi     → edge dihapus
 ///  - callee pindah file / id berubah → edge di-rewrite (_to, to_path)
 ///  - target tetap                   → dibiarkan
+///
 /// Edge format lama (tanpa callee) diabaikan — migrasi lewat rescan file
 /// caller-nya. Bebas race urutan file karena resolusi melihat hasil tulisan
 /// seluruh batch.

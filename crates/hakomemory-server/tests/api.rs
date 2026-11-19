@@ -44,7 +44,7 @@ fn test_app() -> (Router, PathBuf) {
     (router(state), dir)
 }
 
-async fn open_project(app: &Router, dir: &PathBuf) -> String {
+async fn open_project(app: &Router, dir: &std::path::Path) -> String {
     let (status, body) = call(
         app,
         "POST",
@@ -107,7 +107,7 @@ async fn memory_write_search_forget() {
             json!({ "project_id": pid, "kind": "semantic", "query": "verifikasi kebenaran data", "k": 5 }),
         )
         .await;
-        if hits["hits"].as_array().map_or(false, |h| !h.is_empty()) {
+        if hits["hits"].as_array().is_some_and(|h| !h.is_empty()) {
             found = true;
             break;
         }
@@ -133,7 +133,7 @@ async fn memory_write_search_forget() {
             json!({ "project_id": pid, "kind": "semantic", "query": "verifikasi kebenaran data", "k": 5 }),
         )
         .await;
-        let empty = hits["hits"].as_array().map_or(false, |h| h.is_empty());
+        let empty = hits["hits"].as_array().is_some_and(|h| h.is_empty());
         if empty { gone = true; break; }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
@@ -182,7 +182,7 @@ async fn index_symbols_graph_retrieve_and_remove() {
     assert_eq!(status, StatusCode::OK, "{graph}");
     let nodes = graph["nodes"].as_array().unwrap();
     assert!(!nodes.is_empty());
-    assert!(graph["edges"].as_array().map_or(false, |e| !e.is_empty()));
+    assert!(graph["edges"].as_array().is_some_and(|e| !e.is_empty()));
     // v0.21.0 proyeksi: emb tidak pernah ikut, tapi field edge-doc tetap ada
     assert!(
         nodes.iter().all(|n| n["doc"].get("emb").is_none()),
@@ -203,7 +203,7 @@ async fn index_symbols_graph_retrieve_and_remove() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{retrieved}");
-    assert!(retrieved["hits"].as_array().map_or(false, |h| !h.is_empty()));
+    assert!(retrieved["hits"].as_array().is_some_and(|h| !h.is_empty()));
 
     let (status, removed) = call(
         &app,
@@ -220,7 +220,7 @@ async fn index_symbols_graph_retrieve_and_remove() {
         json!({ "project_id": pid, "name": "caller" }),
     )
     .await;
-    assert!(syms["hits"].as_array().map_or(false, |h| h.is_empty()));
+    assert!(syms["hits"].as_array().is_some_and(|h| h.is_empty()));
 }
 
 #[tokio::test]

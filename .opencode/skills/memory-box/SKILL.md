@@ -47,4 +47,4 @@ and `memory.forget` for deletion.
 - `distill` calls the user's OpenCode model. If it reports a quota error, the
   rest of memory-box still works; plumbing can be tested with
   `MEMORYBOX_DISTILL_MODE=mock bash scripts/test-distill-e2e.sh`.
-- The server binds localhost and has no auth. Do not expose it publicly.
+- The server binds localhost. HMAC auth is configured with `MEMORYBOX_AUTH_SECRET`; do not expose it publicly without a scoped token.

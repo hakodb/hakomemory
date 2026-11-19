@@ -3,15 +3,17 @@
 ## Current state
 
 - The server binds **`127.0.0.1` only** (`crates/hakomemory-server/src/main.rs`).
-- There is **no authentication or authorization** on any route. The only
-  middleware is request logging (method + path + status + duration; no headers
-  or bodies are logged).
-- All `/v1/*` endpoints accept a `project_id` supplied by the caller. The
-  `projects/open` and `index/scan` endpoints accept an arbitrary filesystem
-  path supplied by the caller.
+- Authentication is **implemented** via `MEMORYBOX_AUTH_SECRET` (HMAC bearer
+  tokens). When the secret is unset the server is open on loopback; when set,
+  all `/v1/*` routes except `/healthz` require a bearer token with scoped
+  `roots`, `projects`, `agents` and `sessions` (`src/auth.rs`, `src/lib.rs`).
+- Request logging records method + path + status + duration; headers and bodies
+  are not logged.
+- All `/v1/*` endpoints accept a `project_id` supplied by the caller and check
+  it against the token's `projects`. `projects/open` and `index/scan` also
+  validate filesystem paths against the token's `roots`.
 
-So the current security boundary is the host itself: any local process (or any
-user able to reach the loopback port) has full access.
+So the security boundary is: loopback bind + HMAC token when `MEMORYBOX_AUTH_SECRET` is configured; without it, any local process can reach the API.
 
 ## Risks if the server is exposed beyond localhost
 

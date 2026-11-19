@@ -98,11 +98,13 @@ and [plugins/memory-box/README.md](plugins/memory-box/README.md).
 | `MEMORYBOX_RATE_PER_MIN` | `0` | per-user request limit (0 = disabled) |
 | `MEMORYBOX_EMBED_URL` | unset | HTTP embedder base URL (unset = local candle) |
 | `MEMORYBOX_EMBED_DIM` | required if URL | vector dimension of the HTTP embedder |
-| `MEMORYBOX_EMBED_TOKEN` | unset | bearer token for the HTTP embedder |
+| `MEMORYBOX_EMBED_TOKEN` | required for adapter | bearer token for the HTTP embedder; adapter refuses to start without it |
 | `MEMORYBOX_EMBED_MODEL` | `http-embedder` | model id recorded in project spec |
 | `MEMORYBOX_EMBED_HOST` | `127.0.0.1` | `hakomemory-embed-srv` bind host |
 | `MEMORYBOX_EMBED_PORT` | `7416` | `hakomemory-embed-srv` bind port |
-| `MEMORYBOX_EMBED_TOKEN` | unset | shared token between server and embedder |
+| `MEMORYBOX_EMBED_TOKEN` | unset (required for adapter) | shared token between server and embedder |
+| `MEMORYBOX_AGENT_ID` | `opencode` | agent id sent by plugin/MCP on scoped writes |
+| `MEMORYBOX_SESSION_ID` | generated | session id sent by plugin/MCP on scoped writes |
 | `MEMORYBOX_ADAPTER_PROVIDER` | — | adapter: `cohere\|openai\|gemini\|nim` |
 | `MEMORYBOX_ADAPTER_API_KEY` | — | vendor API key (adapter process only) |
 | `MEMORYBOX_ADAPTER_DIM` | `384` | output dimension |

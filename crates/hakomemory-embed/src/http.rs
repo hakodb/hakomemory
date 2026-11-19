@@ -68,7 +68,7 @@ impl HttpEmbedder {
         if !(200..300).contains(&status) {
             return Err(anyhow!("embedder HTTP {status}: {}", clip(&text)));
         }
-        let body_text = text.splitn(2, "\r\n\r\n").nth(1).unwrap_or("");
+        let body_text = text.split_once("\r\n\r\n").map(|x| x.1).unwrap_or("");
         let value: Value = serde_json::from_str(body_text)
             .map_err(|e| anyhow!("respons embedder bukan JSON: {e}: {}", clip(body_text)))?;
         if let Some(error) = value.get("error").and_then(|v| v.as_str()) {

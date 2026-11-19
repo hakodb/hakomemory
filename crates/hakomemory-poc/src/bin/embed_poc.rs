@@ -14,8 +14,10 @@ use hakomemory_embed::Embedder;
 const DIM: u32 = 384;
 
 fn open_db(dir: &std::path::Path) -> Result<Hako> {
-    let mut cfg = HakoConfig::default();
-    cfg.durability_mode = DurabilityMode::Manual;
+    let cfg = HakoConfig {
+        durability_mode: DurabilityMode::Manual,
+        ..Default::default()
+    };
     Ok(Hako::open(dir, cfg)?)
 }
 

@@ -57,6 +57,40 @@ impl EmbeddingSpec {
             other => Err(anyhow!("metric embedding tidak dikenal: {other}")),
         }
     }
+
+    /// Semua atribut yang menentukan ruang vektor. Membandingkan hanya
+    /// `dim`/`metric` tidak cukup: model lain dengan dimensi sama tetap
+    /// menghasilkan vektor yang tidak kompatibel.
+    pub fn drift(&self, other: &EmbeddingSpec) -> Option<String> {
+        let mut changes = Vec::new();
+        if self.model_id != other.model_id {
+            changes.push(format!("model '{}' -> '{}'", self.model_id, other.model_id));
+        }
+        if self.provider != other.provider {
+            changes.push(format!("provider '{}' -> '{}'", self.provider, other.provider));
+        }
+        if self.dim != other.dim {
+            changes.push(format!("{}d -> {}d", self.dim, other.dim));
+        }
+        if self.metric != other.metric {
+            changes.push(format!("metric '{}' -> '{}'", self.metric, other.metric));
+        }
+        if changes.is_empty() {
+            None
+        } else {
+            Some(changes.join(", "))
+        }
+    }
+
+    /// Pesan error tunggal untuk drift; dipakai saat open maupun persist.
+    pub fn drift_error(existing: &EmbeddingSpec, requested: &EmbeddingSpec) -> anyhow::Error {
+        anyhow!(
+            "spesifikasi embedding berubah ({}). Vektor lama tidak bisa dipakai \
+             dengan model/provider baru. Lakukan migrasi field/index + re-embed \
+             eksplisit, atau kembalikan konfigurasi lama.",
+            existing.drift(requested).unwrap_or_default()
+        )
+    }
 }
 
 /// Semua koleksi yang perlu vector+FTS index (koleksi memory).
@@ -182,11 +216,8 @@ impl ProjectStore {
     /// Validasi spec terhadap data lama; simpan bila project baru.
     fn apply_spec(&self, db: &Hako) -> Result<()> {
         if let Some(existing) = read_embed_spec(db)? {
-            if existing.dim != self.default_spec.dim || existing.metric != self.default_spec.metric {
-                return Err(anyhow!(
-                    "project ini memakai embedding {}d/{} tapi server dikonfigurasi {}d/{}.                      Lakukan migrasi field/index + re-embed, atau kembalikan konfigurasi lama.",
-                    existing.dim, existing.metric, self.default_spec.dim, self.default_spec.metric
-                ));
+            if existing.drift(&self.default_spec).is_some() {
+                return Err(EmbeddingSpec::drift_error(&existing, &self.default_spec));
             }
         }
         let spec = self.default_spec.clone();
@@ -299,12 +330,8 @@ pub fn read_embed_spec(db: &Hako) -> Result<Option<EmbeddingSpec>> {
 /// Simpan spesifikasi embedding (idempotent); konflik dimensi = error keras.
 pub fn persist_embed_spec(db: &Hako, spec: &EmbeddingSpec) -> Result<()> {
     if let Some(existing) = read_embed_spec(db)? {
-        if existing.dim != spec.dim || existing.metric != spec.metric {
-            return Err(anyhow!(
-                "dimensi/metric embedding berubah ({}d {} -> {}d {}). \
-                 Perlu migrasi field/index baru + re-embed, bukan overwrite.",
-                existing.dim, existing.metric, spec.dim, spec.metric
-            ));
+        if existing.drift(spec).is_some() {
+            return Err(EmbeddingSpec::drift_error(&existing, spec));
         }
         return Ok(());
     }

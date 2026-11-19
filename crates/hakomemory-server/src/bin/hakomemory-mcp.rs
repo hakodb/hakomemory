@@ -84,7 +84,7 @@ fn parse_http_response(text: &str) -> Result<String, String> {
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|code| code.parse::<u16>().ok());
-    let raw = text.splitn(2, "\r\n\r\n").nth(1).unwrap_or("");
+    let raw = text.split_once("\r\n\r\n").map(|x| x.1).unwrap_or("");
     let body = if text.to_ascii_lowercase().contains("transfer-encoding: chunked") {
         dechunk(raw)
     } else {
@@ -100,8 +100,7 @@ fn parse_http_response(text: &str) -> Result<String, String> {
 fn dechunk(body: &str) -> String {
     let mut out = String::new();
     let mut rest = body;
-    loop {
-        let Some(i) = rest.find("\r\n") else { break };
+    while let Some(i) = rest.find("\r\n") {
         let size = usize::from_str_radix(rest[..i].trim(), 16).unwrap_or(0);
         if size == 0 {
             break;
@@ -156,12 +155,28 @@ fn tool_retrieve(args: &Value) -> Result<Value, String> {
     Ok(json!({ "content": [{ "type": "text", "text": if lines.is_empty() { "tidak ada hit".into() } else { lines.join("\n\n") } }] }))
 }
 
+/// Scope ids required by scoped tokens on memory writes/searches.
+fn scope() -> (String, String) {
+    let agent = std::env::var("MEMORYBOX_AGENT_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "opencode".into());
+    let session = std::env::var("MEMORYBOX_SESSION_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("mcp-{}", std::process::id()));
+    (agent, session)
+}
+
 fn tool_search(args: &Value) -> Result<Value, String> {
     let pid = project_id()?;
+    let (agent, session) = scope();
     let mut body = json!({
         "project_id": pid,
         "query": args["query"].as_str().unwrap_or_default(),
         "k": args["k"].as_u64().unwrap_or(5),
+        "agent_id": agent,
+        "session_id": session,
     });
     if let Some(k) = args["kind"].as_str() {
         body["kind"] = json!(k);
@@ -189,9 +204,12 @@ fn tool_search(args: &Value) -> Result<Value, String> {
 
 fn tool_save(args: &Value) -> Result<Value, String> {
     let pid = project_id()?;
+    let (agent, session) = scope();
     let mut body = json!({
         "project_id": pid,
         "text": args["text"].as_str().unwrap_or_default(),
+        "agent_id": agent,
+        "session_id": session,
     });
     // API mewajibkan kind — samakan dengan plugin (default semantic).
     body["kind"] = json!(args["kind"].as_str().unwrap_or("semantic"));

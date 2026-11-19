@@ -64,16 +64,31 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 fn authorized(head: &str, token: Option<&str>) -> bool {
     match token {
         None => true,
-        Some(expected) => head.lines().any(|line| {
-            let (k, v) = match line.split_once(':') {
-                Some(pair) => pair,
-                None => return false,
-            };
-            k.eq_ignore_ascii_case("authorization") && v.trim() == format!("Bearer {expected}")
-        }),
+        Some(expected) => {
+            let expected = format!("Bearer {expected}");
+            head.lines().any(|line| {
+                let (k, v) = match line.split_once(':') {
+                    Some(pair) => pair,
+                    None => return false,
+                };
+                k.eq_ignore_ascii_case("authorization")
+                    && constant_time_eq(v.trim().as_bytes(), expected.as_bytes())
+            })
+        }
     }
 }
 

@@ -57,7 +57,7 @@ fn spec_tersimpan_dan_mismatch_ditolak() {
         drop(store); // lepas lock hako.lock
         pid
     };
-    // Konfigurasi 768d membuka data lama 384d → harus error jelas
+    // Konfigurasi 768d membuka data lama 384d â†’ harus error jelas
     let store2 = ProjectStore::new(dir, EmbeddingSpec::local(768));
     let err = match store2.get(&pid) {
         Ok(_) => panic!("mismatch dimensi harus ditolak"),
@@ -117,4 +117,56 @@ async fn project_768d_bekerja_end_to_end() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(!found["hits"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn model_id_sama_dim_tetap_ditolak() {
+    let dir = temp_root();
+    let path = "/tmp/project-drift-model";
+    let base = EmbeddingSpec {
+        model_id: "local-model-a".into(),
+        dim: 384,
+        metric: "Cosine".into(),
+        provider: "local".into(),
+    };
+    let pid = {
+        let store = ProjectStore::with_limits_and_spec(dir.clone(), 2, std::time::Duration::ZERO, base.clone());
+        let (pid, db) = store.open_project(path).unwrap();
+        drop(db);
+        drop(store);
+        pid
+    };
+    let changed = EmbeddingSpec { model_id: "local-model-b".into(), ..base };
+    let store = ProjectStore::with_limits_and_spec(dir, 2, std::time::Duration::ZERO, changed);
+    let err = match store.get(&pid) {
+        Ok(_) => panic!("model_id berubah dengan dim sama harus ditolak"),
+        Err(e) => e.to_string(),
+    };
+    assert!(err.contains("model") && err.contains("re-embed"), "error tidak jelas: {err}");
+}
+
+#[test]
+fn provider_sama_dim_tetap_ditolak() {
+    let dir = temp_root();
+    let path = "/tmp/project-drift-provider";
+    let base = EmbeddingSpec {
+        model_id: "embed-v1".into(),
+        dim: 384,
+        metric: "Cosine".into(),
+        provider: "local".into(),
+    };
+    let pid = {
+        let store = ProjectStore::with_limits_and_spec(dir.clone(), 2, std::time::Duration::ZERO, base.clone());
+        let (pid, db) = store.open_project(path).unwrap();
+        drop(db);
+        drop(store);
+        pid
+    };
+    let changed = EmbeddingSpec { provider: "http".into(), ..base };
+    let store = ProjectStore::with_limits_and_spec(dir, 2, std::time::Duration::ZERO, changed);
+    let err = match store.get(&pid) {
+        Ok(_) => panic!("provider berubah dengan dim sama harus ditolak"),
+        Err(e) => e.to_string(),
+    };
+    assert!(err.contains("provider") && err.contains("re-embed"), "error tidak jelas: {err}");
 }

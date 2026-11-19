@@ -1,4 +1,4 @@
-//! hakomemory-embed-adapter — jembatan protokol internal memory-box ke API embedding online.
+//! hakomemory-embed-adapter â€” jembatan protokol internal memory-box ke API embedding online.
 //!
 //! Internal (dipanggil hakomemory-server lewat MEMORYBOX_EMBED_URL):
 //!   GET  /dim   -> {"dim":N}
@@ -42,6 +42,8 @@ struct Config {
     api_key: String,
     model: String,
     dim: u32,
+    /// Shared bearer token; internal endpoints are not public.
+    token: String,
     /// override base URL (untuk test / proxy lokal)
     base: String,
 }
@@ -68,6 +70,11 @@ impl Config {
         if dim == 0 || dim > 4096 {
             return Err(anyhow!("MEMORYBOX_ADAPTER_DIM harus 1..=4096"));
         }
+        let token = std::env::var("MEMORYBOX_EMBED_TOKEN")
+            .map_err(|_| anyhow!("MEMORYBOX_EMBED_TOKEN wajib untuk embed adapter"))?;
+        if token.trim().is_empty() {
+            return Err(anyhow!("MEMORYBOX_EMBED_TOKEN tidak boleh kosong"));
+        }
         let base = std::env::var("MEMORYBOX_ADAPTER_BASE_URL")
             .unwrap_or_else(|_| match provider {
                 Provider::Cohere => "https://api.cohere.com".into(),
@@ -87,12 +94,13 @@ impl Config {
             api_key,
             model,
             dim,
+            token,
             base,
         })
     }
 }
 
-/// Batasi laju request ke vendor (default 6 dtk ≈ 10 RPM untuk tier free).
+/// Batasi laju request ke vendor (default 6 dtk â‰ˆ 10 RPM untuk tier free).
 static LAST_CALL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
 fn throttle() {
@@ -204,7 +212,7 @@ fn forward_cohere(cfg: &Config, texts: &[String], role: &str) -> Result<Vec<Vec<
         .and_then(|e| e.get("float"))
         .and_then(|v| v.as_array())
         .ok_or_else(|| anyhow!("respons Cohere tanpa embeddings.float"))?;
-    arr.iter().map(|v| as_f32_vec(v)).collect()
+    arr.iter().map(as_f32_vec).collect()
 }
 
 fn forward_openai(cfg: &Config, texts: &[String], send_dimensions: bool) -> Result<Vec<Vec<f32>>> {
@@ -302,6 +310,30 @@ fn as_f32_vec(value: &Value) -> Result<Vec<f32>> {
 
 // ---- server internal HTTP ----
 
+/// Perbandingan token yang tidak bergantung pada posisi byte yang cocok.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn authorized(head: &str, expected: &str) -> bool {
+    let expected = format!("Bearer {expected}");
+    head.lines().any(|line| {
+        let (key, value) = match line.split_once(':') {
+            Some(pair) => pair,
+            None => return false,
+        };
+        key.eq_ignore_ascii_case("authorization")
+            && constant_time_eq(value.trim().as_bytes(), expected.as_bytes())
+    })
+}
+
 fn handle(mut stream: TcpStream, cfg: Arc<Config>) -> Result<()> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 4096];
@@ -320,7 +352,7 @@ fn handle(mut stream: TcpStream, cfg: Arc<Config>) -> Result<()> {
             return Err(anyhow!("header terlalu besar"));
         }
     }
-    let head = String::from_utf8_lossy(&buf[..header_end]);
+    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
     let mut lines = head.lines();
     let request_line = lines.next().unwrap_or("");
     let mut parts = request_line.split_whitespace();
@@ -353,6 +385,9 @@ fn handle(mut stream: TcpStream, cfg: Arc<Config>) -> Result<()> {
 
     let (status, payload) = match (method.as_str(), path.as_str()) {
         ("GET", "/healthz") => (200, json!({ "status": "ok" })),
+        ("GET", "/dim") | ("POST", "/embed") if !authorized(&head, &cfg.token) => {
+            (401, json!({ "error": "unauthorized" }))
+        }
         ("GET", "/dim") => (200, json!({ "dim": cfg.dim })),
         ("POST", "/embed") => {
             let input: Value = serde_json::from_slice(request_body)
@@ -379,7 +414,12 @@ fn handle(mut stream: TcpStream, cfg: Arc<Config>) -> Result<()> {
     };
 
     let response_body = serde_json::to_vec(&payload)?;
-    let reason = if status == 200 { "OK" } else { "Not Found" };
+    let reason = match status {
+        200 => "OK",
+        401 => "Unauthorized",
+        400 => "Bad Request",
+        _ => "Not Found",
+    };
     let response = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         response_body.len()
@@ -459,6 +499,7 @@ mod tests {
             api_key: "x".into(),
             model: "embed-multilingual-light-v3.0".into(),
             dim: 2,
+            token: "rahasia".into(),
             base: "http://127.0.0.1:1".into(),
         };
         // forward tidak dipanggil di sini; uji normalisasi lewat helper lokal
@@ -468,5 +509,15 @@ mod tests {
         assert!((n[0] - 0.6).abs() < 1e-6);
         assert!((n[1] - 0.8).abs() < 1e-6);
         assert_eq!(cfg.dim, 2);
+    }
+
+    #[test]
+    fn auth_token_constan_time_dan_header() {
+        assert!(constant_time_eq(b"rahasia", b"rahasia"));
+        assert!(!constant_time_eq(b"rahasia", b"rahasiax"));
+        assert!(!constant_time_eq(b"rahasia", b"Rahasia"));
+        assert!(authorized("GET /dim HTTP/1.1\r\nAuthorization: Bearer rahasia\r\n", "rahasia"));
+        assert!(!authorized("GET /dim HTTP/1.1\r\nAuthorization: Bearer salah\r\n", "rahasia"));
+        assert!(!authorized("GET /dim HTTP/1.1\r\n", "rahasia"));
     }
 }

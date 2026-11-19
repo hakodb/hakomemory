@@ -118,6 +118,18 @@ impl AuthContext {
         if self.admin {
             return Ok(());
         }
+        // Prefer real paths: Windows canonicalize returns 8.3 short names,
+        // while token roots are usually the long form; comparing only lexical
+        // components rejects legitimate paths (and accepts symlink escapes).
+        if let Ok(canonical) = std::fs::canonicalize(path) {
+            let within_root = self.roots.iter().any(|root| {
+                std::fs::canonicalize(root)
+                    .map(|root| canonical.starts_with(root))
+                    .unwrap_or(false)
+            });
+            return if within_root { Ok(()) } else { Err(StatusCode::FORBIDDEN) };
+        }
+        // Path does not exist yet (e.g. a future write): fall back to lexical.
         let target = normalize(path);
         if self.roots.iter().any(|r| target.starts_with(normalize(&r.to_string_lossy()))) {
             Ok(())

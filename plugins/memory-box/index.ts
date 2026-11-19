@@ -78,6 +78,12 @@ export default {
     const alias = (typeof opts.alias === "string" && opts.alias) ||
       process.env.MEMORYBOX_ALIAS || ""
 
+    // Scoped tokens require agent_id/session_id on memory writes.
+    const agentID = (typeof opts.agentID === "string" && opts.agentID) ||
+      process.env.MEMORYBOX_AGENT_ID || "opencode"
+    const sessionID = (typeof opts.sessionID === "string" && opts.sessionID) ||
+      process.env.MEMORYBOX_SESSION_ID || `opencode-${Date.now().toString(36)}`
+
     const directory =
       (typeof opts.projectPath === "string" && opts.projectPath) ||
       process.env.MEMORYBOX_PROJECT ||
@@ -106,7 +112,7 @@ export default {
     const remember = async (kind, text, metadata) =>
       post(
         `${server}/v1/memory/write`,
-        { project_id: projectID, kind, text, metadata },
+        { project_id: projectID, kind, text, metadata, agent_id: agentID, session_id: sessionID },
         8000,
         token,
       )
@@ -187,6 +193,8 @@ export default {
             kind: "procedural",
             query,
             k: 2,
+            agent_id: agentID,
+            session_id: sessionID,
           }, FETCH_TIMEOUT_MS, token),
         ])
         const hits = res?.hits ?? []

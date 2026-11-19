@@ -55,4 +55,4 @@ model downloads to `cargo test`.
   before candle/tokenizers initialize (global rayon pool ownership).
 - Paths in docs/scripts must stay machine-independent; use env vars
   (`MEMORYBOX_PROJECT`, `MEMORYBOX_URL`, etc.).
-- The server binds localhost and has no auth — never expose it directly.
+- The server binds localhost. HMAC auth is available via `MEMORYBOX_AUTH_SECRET`; configure it before exposing the port beyond the local machine.

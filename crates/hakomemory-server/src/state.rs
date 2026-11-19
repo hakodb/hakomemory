@@ -3,6 +3,7 @@
 
 use crate::auth::{AuthContext, AuthConfig};
 use hakomemory_core::store::ProjectStore;
+use hakomemory_core::config::FileConfig;
 use hakomemory_core::{embed::SharedEmbedder, store::EmbeddingSpec, Engine};
 use crate::watcher;
 use anyhow::{Context, Result};
@@ -102,19 +103,46 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Open with defaults from `hakomemory.json` (if present) and env overrides.
     pub fn open(data_dir: &Path) -> Result<Arc<Self>> {
-        // Catatan: ProjectStore::new BELUM membuka HakoDB (lazy per project),
-        // jadi urutan aman: embedder dulu untuk mengetahui dimensi aktif, baru
-        // store dibuat dengan EmbeddingSpec tersebut. Hako::open terjadi saat
-        // projects/open/get dipanggil (setelah pool rayon terinisialisasi).
-        let cache = std::env::var("MEMORYBOX_MODEL_CACHE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs_or_default("huggingface").unwrap_or_else(|| data_dir.join("model-cache"))
-            });
-        let embedder = Arc::new(SharedEmbedder::load(&cache)?);
-        let spec = EmbeddingSpec::from_env(embedder.dim());
-        let store = Arc::new(ProjectStore::new(data_dir.to_path_buf(), spec));
+        let mut config = FileConfig::load_default_in(data_dir)?;
+        apply_env_overrides(&mut config);
+        Self::open_with_config(data_dir, config)
+    }
+
+    /// Open with an explicit config. No env var is consulted here.
+    pub fn open_with_config(data_dir: &Path, config: FileConfig) -> Result<Arc<Self>> {
+        // HakoDB must initialise its rayon pool before candle/tokenizers, so
+        // build the embedder first and the store (still lazy) afterwards.
+        let cache = config
+            .model_cache
+            .clone()
+            .unwrap_or_else(|| dirs_or_default("huggingface").unwrap_or_else(|| data_dir.join("model-cache")));
+        let embedder = Arc::new(if config.provider == "http" {
+            let url = std::env::var("MEMORYBOX_EMBED_URL")
+                .map_err(|_| anyhow::anyhow!("MEMORYBOX_EMBED_URL wajib untuk provider http"))?;
+            let token = std::env::var("MEMORYBOX_EMBED_TOKEN").ok().filter(|t| !t.is_empty());
+            SharedEmbedder::http(&url, token, config.dim)?
+        } else if let Some(model) = config.model.as_deref() {
+            SharedEmbedder::load_model(model, &cache)?
+        } else {
+            SharedEmbedder::load(&cache)?
+        });
+        let spec = EmbeddingSpec {
+            model_id: config
+                .model
+                .clone()
+                .unwrap_or_else(crate::embed::model_from_env),
+            dim: embedder.dim(),
+            metric: config.metric,
+            provider: config.provider,
+        };
+        let store = Arc::new(ProjectStore::with_limits_and_spec(
+            data_dir.to_path_buf(),
+            config.max_projects,
+            std::time::Duration::from_secs(config.idle_ttl_secs),
+            spec,
+        ));
         Ok(Self::with_embedder(
             data_dir,
             store,
@@ -263,4 +291,41 @@ fn rate_limit_from_env() -> RateLimiter {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     RateLimiter::new(limit)
+}
+
+/// Env vars override file values (legacy deployments keep working).
+fn apply_env_overrides(config: &mut FileConfig) {
+    if let Ok(value) = std::env::var("MEMORYBOX_MODEL") {
+        if !value.trim().is_empty() {
+            config.model = Some(value);
+        }
+    }
+    if let Ok(value) = std::env::var("MEMORYBOX_EMBED_URL") {
+        if !value.trim().is_empty() {
+            config.provider = "http".into();
+        }
+    }
+    if let Ok(value) = std::env::var("MEMORYBOX_EMBED_DIM") {
+        if let Ok(dim) = value.parse() {
+            config.dim = dim;
+        }
+    }
+    if let Ok(value) = std::env::var("MEMORYBOX_EMBED_MODEL") {
+        if !value.trim().is_empty() {
+            config.model = Some(value);
+        }
+    }
+    if let Ok(value) = std::env::var("MEMORYBOX_MODEL_CACHE") {
+        config.model_cache = Some(PathBuf::from(value));
+    }
+    if let Ok(value) = std::env::var("MEMORYBOX_MAX_PROJECTS") {
+        if let Ok(limit) = value.parse() {
+            config.max_projects = limit;
+        }
+    }
+    if let Ok(value) = std::env::var("MEMORYBOX_PROJECT_IDLE_SECS") {
+        if let Ok(seconds) = value.parse() {
+            config.idle_ttl_secs = seconds;
+        }
+    }
 }

@@ -1,0 +1,207 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "HakoMemory HTTP API",
+    "version": "1",
+    "description": "Local-first embedded knowledge engine. All errors use the same structured envelope."
+  },
+  "servers": [{ "url": "http://127.0.0.1:7412" }],
+  "paths": {
+    "/healthz": {
+      "get": { "operationId": "healthz", "responses": { "200": { "description": "ok" } } }
+    },
+    "/v1/projects/open": {
+      "post": {
+        "operationId": "projectsOpen",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectsOpen" } } } },
+        "responses": { "200": { "description": "project id", "content": { "application/json": { "schema": { "type": "object", "properties": { "project_id": { "type": "string" } } } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/index/scan": {
+      "post": {
+        "operationId": "indexScan",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectPath" } } } },
+        "responses": { "200": { "description": "scan report" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/index/remove": {
+      "post": { "operationId": "indexRemove", "responses": { "200": { "description": "removed" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/index/status": {
+      "get": { "operationId": "indexStatus", "responses": { "200": { "description": "status" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/retrieve": {
+      "post": { "operationId": "retrieveLegacy", "responses": { "200": { "description": "legacy code-chunk hits" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/symbols/lookup": {
+      "post": { "operationId": "symbolsLookup", "responses": { "200": { "description": "symbol hits" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/memory/write": {
+      "post": { "operationId": "memoryWrite", "responses": { "200": { "description": "saved id" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/memory/search": {
+      "post": { "operationId": "memorySearch", "responses": { "200": { "description": "memory hits" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/memory/forget": {
+      "post": { "operationId": "memoryForget", "responses": { "200": { "description": "forgotten" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/documents/upsert": {
+      "post": {
+        "operationId": "documentsUpsert",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUpsert" } } } },
+        "responses": { "200": { "description": "document record" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/documents/batch": {
+      "post": { "operationId": "documentsBatch", "responses": { "200": { "description": "document records" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/documents/get": {
+      "get": {
+        "operationId": "documentsGet",
+        "parameters": [
+          { "name": "project_id", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "source_uri", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "document view with citations" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/documents/list": {
+      "get": { "operationId": "documentsList", "responses": { "200": { "description": "document list" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/documents/delete": {
+      "post": { "operationId": "documentsDelete", "responses": { "200": { "description": "deleted" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/documents/scan": {
+      "post": { "operationId": "documentsScan", "responses": { "200": { "description": "manifest-driven scan summary" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/documents/search": {
+      "post": {
+        "operationId": "documentsSearch",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RetrievalQuery" } } } },
+        "responses": { "200": { "description": "hits with citations and token budget" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/admin/migrate": {
+      "post": { "operationId": "adminMigrate", "responses": { "200": { "description": "migration report" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/admin/backfill": {
+      "post": { "operationId": "adminBackfill", "responses": { "200": { "description": "stamped count" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/admin/revoke": {
+      "post": { "operationId": "adminRevoke", "responses": { "200": { "description": "revoked" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/context": {
+      "post": { "operationId": "graphContext", "responses": { "200": { "description": "legacy projected subgraph" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/rank": {
+      "post": { "operationId": "graphRank", "responses": { "200": { "description": "PageRank rows" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/community": {
+      "post": { "operationId": "graphCommunity", "responses": { "200": { "description": "communities" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/components": {
+      "post": { "operationId": "graphComponents", "responses": { "200": { "description": "connected components" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/degrees": {
+      "post": { "operationId": "graphDegrees", "responses": { "200": { "description": "degree centrality" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/path": {
+      "post": { "operationId": "graphPath", "responses": { "200": { "description": "normalized entities/relations" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/subgraph": {
+      "post": { "operationId": "graphSubgraph", "responses": { "200": { "description": "normalized entities/relations" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/cycle": {
+      "post": { "operationId": "graphCycle", "responses": { "200": { "description": "cycle" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/topo": {
+      "post": { "operationId": "graphTopo", "responses": { "200": { "description": "topological order" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/graph/export": {
+      "post": { "operationId": "graphExport", "responses": { "200": { "description": "normalized entities/relations" }, "default": { "$ref": "#/components/responses/Error" } } }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ProjectsOpen": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "alias": { "type": "string" }
+        }
+      },
+      "ProjectPath": {
+        "type": "object",
+        "required": ["project_id", "path"],
+        "properties": {
+          "project_id": { "type": "string" },
+          "path": { "type": "string" }
+        }
+      },
+      "DocumentUpsert": {
+        "type": "object",
+        "required": ["project_id", "source_uri", "content"],
+        "properties": {
+          "project_id": { "type": "string" },
+          "source_uri": { "type": "string" },
+          "content": { "type": "string" },
+          "collection": { "type": "string" },
+          "title": { "type": "string" },
+          "metadata": { "type": "object" },
+          "strategy": { "type": "string", "enum": ["fixed", "header"] },
+          "max_lines": { "type": "integer" },
+          "overlap": { "type": "integer" },
+          "mtime": { "type": "integer" }
+        }
+      },
+      "RetrievalQuery": {
+        "type": "object",
+        "required": ["project_id", "query"],
+        "properties": {
+          "project_id": { "type": "string" },
+          "query": { "type": "string" },
+          "mode": { "type": "string", "enum": ["vector", "fts", "hybrid"] },
+          "filters": { "type": "array", "items": { "$ref": "#/components/schemas/FilterSpec" } },
+          "k": { "type": "integer" },
+          "rrf_k": { "type": "integer" },
+          "budget_tokens": { "type": "integer" },
+          "collection": { "type": "string" },
+          "citations": { "type": "boolean" }
+        }
+      },
+      "FilterSpec": {
+        "type": "object",
+        "required": ["field", "op", "value"],
+        "properties": {
+          "field": { "type": "string" },
+          "op": { "type": "string" },
+          "value": {}
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "request_id"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "request_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Structured error",
+        "headers": {
+          "Retry-After": { "description": "Present on 429", "schema": { "type": "string" } }
+        },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+      }
+    }
+  }
+}

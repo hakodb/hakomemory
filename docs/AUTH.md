@@ -100,8 +100,9 @@ model below), not an optional extra.
   **canonical path** (`store.rs`). Two different paths → two different DBs.
 - **But `pid` is not a user boundary.** It is derived from a path and supplied
   by the caller; no user/owner is attached to it. Two users pointing at the
-  same path get the **same pid and the same memory**. Any caller can request any
-  existing `pid` because there is no authorization check.
+  same path get the **same pid and the same memory**. When auth is disabled,
+  any caller can request any existing `pid`; with `MEMORYBOX_AUTH_SECRET` set,
+  `authorize_project` checks the token's `projects`/`roots` first.
 - **Memory collections are project-scoped.** Historically docs had no
   `user_id`/`agent_id`/`session_id` field; that is now fixed in the implemented
   sections below (stamping + filtering). The `prompt` hook still writes user

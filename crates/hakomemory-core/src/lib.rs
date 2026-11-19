@@ -12,6 +12,7 @@ pub mod embed;
 pub mod error;
 pub mod indexer;
 pub mod parser;
+pub mod retrieval;
 pub mod store;
 pub mod watcher;
 

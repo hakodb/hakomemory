@@ -294,7 +294,7 @@ pub async fn graph_context(
             include_path: false,
             include_via: false,
         };
-        // v0.21.0: proyeksi di engine â€” `emb` tidak pernah ikut di-serialize.
+        // v0.21.0: proyeksi di engine Ã¢â‚¬â€ `emb` tidak pernah ikut di-serialize.
         const FIELDS: &[&str] = &[
             "name", "kind", "path", "start_line", "ref_chunks", "content",
             "_from", "_to", "callee", "to_path", "w",
@@ -317,7 +317,7 @@ pub struct SymbolsLookup {
     pub k: usize,
 }
 
-/// Resolve nama simbol â†’ id + lokasi (untuk seed graph dari plugin).
+/// Resolve nama simbol Ã¢â€ â€™ id + lokasi (untuk seed graph dari plugin).
 pub async fn symbols_lookup(
     Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
@@ -602,7 +602,7 @@ pub async fn memory_forget(
                 return Ok::<_, anyhow::Error>(serde_json::json!({ "forbidden": true }));
             }
         }
-        db.delete(col, &id)?; // soft delete (restoreable) â€” hakodb v0.20.0
+        db.delete(col, &id)?; // soft delete (restoreable) Ã¢â‚¬â€ hakodb v0.20.0
         Ok::<_, anyhow::Error>(serde_json::json!({ "forgotten": id }))
     })
     .await
@@ -623,7 +623,7 @@ pub struct BackfillOwner {
 }
 
 /// Stamp `user_id` pada dokumen memory lama yang belum punya owner.
-/// Hanya admin. Dokumen tanpa user_id disembunyikan dari user biasaç›´åˆ° backfill.
+/// Hanya admin. Dokumen tanpa user_id disembunyikan dari user biasaÃ§â€ºÂ´Ã¥Ë†Â° backfill.
 pub async fn admin_backfill_owner(
     Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
@@ -661,7 +661,7 @@ pub async fn admin_backfill_owner(
 
 #[derive(Deserialize)]
 pub struct RevokeToken {
-    /// token lengkap (dari header klien) â€” jti/fingerprint dihitung server
+    /// token lengkap (dari header klien) Ã¢â‚¬â€ jti/fingerprint dihitung server
     pub token: Option<String>,
     /// atau langsung kunci revokasi (jti)
     pub jti: Option<String>,
@@ -950,6 +950,34 @@ pub async fn admin_migrate(
     let res = tokio::task::spawn_blocking(move || {
         let project = engine.project_by_id(&pid)?;
         docs::migrate(project.db(), dry_run)})
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
+}
+// ---- generic filtered retrieval (#7) ----
+
+use hakomemory_core::retrieval;
+
+#[derive(Deserialize)]
+pub struct DocumentSearch {
+    pub project_id: String,
+    #[serde(flatten)]
+    pub query: retrieval::RetrievalQuery,
+}
+
+pub async fn documents_search(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<DocumentSearch>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    let (pid, query) = (input.project_id.clone(), input.query);
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        retrieval::search(project.db(), &project.embedder_handle(), &query)
+    })
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?
     .map_err(err500)?;

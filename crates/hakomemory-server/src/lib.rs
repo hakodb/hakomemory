@@ -28,6 +28,10 @@ pub fn router(app_state: Arc<AppState>) -> Router {
         .route("/v1/documents/list", axum::routing::get(api::documents_list))
         .route("/v1/documents/delete", axum::routing::post(api::documents_delete))
         .route("/v1/documents/scan", axum::routing::post(api::documents_scan))
+        .route(
+            "/v1/documents/search",
+            axum::routing::post(api::documents_search),
+        )
         .route("/v1/admin/migrate", axum::routing::post(api::admin_migrate))
         .route("/v1/symbols/lookup", axum::routing::post(api::symbols_lookup))
         .route("/v1/memory/write", axum::routing::post(api::memory_write))

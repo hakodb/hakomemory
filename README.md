@@ -47,9 +47,12 @@ let hits = project.retrieve("how does hybrid search work?", 8, 60)?;
 that shares the same `ProjectStore` and modules through `hakomemory-core`.
 
 Document endpoints (all under `/v1`): `documents/upsert`, `documents/batch`,
-`documents/get`, `documents/list`, `documents/delete`, `documents/scan` and
-`admin/migrate`. `GET /v1/documents/get` returns chunks with a `citation`
-object; `documents/scan` skips unchanged files via the `files` manifest.
+`documents/get`, `documents/list`, `documents/delete`, `documents/scan`,
+`documents/search` and `admin/migrate`. `GET /v1/documents/get` returns chunks
+with a `citation` object; `documents/scan` skips unchanged files via the
+`files` manifest. `documents/search` supports `vector`, `fts` and `hybrid`
+modes, pushes filters into the engine before candidate truncation, and applies
+`budget_tokens` before returning hits.
 
 ## Status
 

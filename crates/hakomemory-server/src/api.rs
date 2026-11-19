@@ -294,7 +294,7 @@ pub async fn graph_context(
             include_path: false,
             include_via: false,
         };
-        // v0.21.0: proyeksi di engine Ã¢â‚¬â€ `emb` tidak pernah ikut di-serialize.
+        // v0.21.0: proyeksi di engine ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â `emb` tidak pernah ikut di-serialize.
         const FIELDS: &[&str] = &[
             "name", "kind", "path", "start_line", "ref_chunks", "content",
             "_from", "_to", "callee", "to_path", "w",
@@ -317,7 +317,7 @@ pub struct SymbolsLookup {
     pub k: usize,
 }
 
-/// Resolve nama simbol Ã¢â€ â€™ id + lokasi (untuk seed graph dari plugin).
+/// Resolve nama simbol ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ id + lokasi (untuk seed graph dari plugin).
 pub async fn symbols_lookup(
     Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
@@ -602,7 +602,7 @@ pub async fn memory_forget(
                 return Ok::<_, anyhow::Error>(serde_json::json!({ "forbidden": true }));
             }
         }
-        db.delete(col, &id)?; // soft delete (restoreable) Ã¢â‚¬â€ hakodb v0.20.0
+        db.delete(col, &id)?; // soft delete (restoreable) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â hakodb v0.20.0
         Ok::<_, anyhow::Error>(serde_json::json!({ "forgotten": id }))
     })
     .await
@@ -623,7 +623,7 @@ pub struct BackfillOwner {
 }
 
 /// Stamp `user_id` pada dokumen memory lama yang belum punya owner.
-/// Hanya admin. Dokumen tanpa user_id disembunyikan dari user biasaÃ§â€ºÂ´Ã¥Ë†Â° backfill.
+/// Hanya admin. Dokumen tanpa user_id disembunyikan dari user biasaÃƒÂ§Ã¢â‚¬ÂºÃ‚Â´ÃƒÂ¥Ã‹â€ Ã‚Â° backfill.
 pub async fn admin_backfill_owner(
     Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
@@ -661,7 +661,7 @@ pub async fn admin_backfill_owner(
 
 #[derive(Deserialize)]
 pub struct RevokeToken {
-    /// token lengkap (dari header klien) Ã¢â‚¬â€ jti/fingerprint dihitung server
+    /// token lengkap (dari header klien) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â jti/fingerprint dihitung server
     pub token: Option<String>,
     /// atau langsung kunci revokasi (jti)
     pub jti: Option<String>,
@@ -981,5 +981,61 @@ pub async fn documents_search(
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?
     .map_err(err500)?;
+    Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
+}
+// ---- generic graph analytics (#8) ----
+
+use hakomemory_core::graph;
+
+#[derive(Deserialize)]
+pub struct GraphQuery {
+    pub project_id: String,
+    #[serde(flatten)]
+    pub options: graph::GraphRequest,
+    /// Target node for `/v1/graph/path` (`collection/id` or bare id).
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+pub async fn graph_analytics(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    uri: axum::http::Uri,
+    Json(input): Json<GraphQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    let operation = uri.path().rsplit('/').next().unwrap_or("").to_string();
+    let (pid, options, target) = (
+        input.project_id.clone(),
+        input.options,
+        input.target.clone(),
+    );
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
+        match operation.as_str() {
+            "rank" => graph::rank(db, &options),
+            "community" => graph::community(db, &options),
+            "components" => graph::components(db, &options),
+            "degrees" => graph::degrees(db, &options),
+            "cycle" => graph::cycle(db, &options),
+            "topo" => graph::topo(db, &options),
+            "subgraph" => graph::subgraph(db, &options),
+            "export" => graph::export(db, &options),
+            "path" => {
+                let target = target.ok_or_else(|| {
+                    hakomemory_core::error::Error::InvalidInput("target is required".into())
+                })?;
+                graph::path(db, &options, &target)
+            }
+            other => Err(hakomemory_core::error::Error::InvalidInput(format!(
+                "unknown graph operation '{other}'"
+            ))),
+        }
+    })
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(|e| err500(anyhow!("graph: {e}")))?;
     Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
 }

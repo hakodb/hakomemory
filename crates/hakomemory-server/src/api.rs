@@ -20,12 +20,39 @@ pub async fn healthz() -> impl IntoResponse {
 
 // ---- helper ----
 
+fn request_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{nanos:x}-{:x}", COUNTER.fetch_add(1, Ordering::Relaxed))
+}
+
+fn error_response(
+    status: StatusCode,
+    code: &str,
+    message: impl Into<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        status,
+        Json(serde_json::json!({
+            "error": {
+                "code": code,
+                "message": message.into(),
+                "request_id": request_id(),
+            }
+        })),
+    )
+}
+
 fn err500(e: anyhow::Error) -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() })))
+    error_response(StatusCode::INTERNAL_SERVER_ERROR, "E_STORAGE", e.to_string())
 }
 
 fn err400(e: anyhow::Error) -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() })))
+    error_response(StatusCode::BAD_REQUEST, "E_INPUT", e.to_string())
 }
 
 fn require_admin(auth: &AuthContext) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -38,8 +65,13 @@ fn require_admin(auth: &AuthContext) -> Result<(), (StatusCode, Json<serde_json:
 
 /// Konversi kegagalan otorisasi ke respons API.
 fn auth_err(code: StatusCode) -> (StatusCode, Json<serde_json::Value>) {
-    let msg = if code == StatusCode::FORBIDDEN { "forbidden" } else { "unauthorized" };
-    (code, Json(serde_json::json!({ "error": msg })))
+    let (code_name, message) = match code {
+        StatusCode::UNAUTHORIZED => ("E_AUTH", "unauthorized"),
+        StatusCode::FORBIDDEN => ("E_AUTH", "forbidden"),
+        StatusCode::TOO_MANY_REQUESTS => ("E_RATE", "rate limit exceeded"),
+        _ => ("E_INPUT", "request rejected"),
+    };
+    error_response(code, code_name, message)
 }
 
 /// Lexical check plus canonical check: `..` and symlinks must not escape the
@@ -74,7 +106,7 @@ pub async fn projects_open(
             Some(entry) => (entry.pid, entry.path),
             None => {
                 let raw = input.path.clone().ok_or_else(|| {
-                    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "alias belum terdaftar; sertakan path untuk mendaftar" })))
+                    err400(anyhow!("alias belum terdaftar; sertakan path untuk mendaftar"))
                 })?;
                 auth.require_path(&raw).map_err(auth_err)?;
                 let canonical = std::fs::canonicalize(&raw)
@@ -98,10 +130,7 @@ pub async fn projects_open(
             .map_err(err500)?;
         (pid, canonical)
     } else {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "path atau alias wajib" })),
-        ));
+        return Err(err400(anyhow!("path atau alias wajib")));
     };
     // pastikan pid yang dipilih server memang diizinkan untuk user ini
     state.authorize_project(&auth, &pid_resolved).map_err(auth_err)?;
@@ -109,7 +138,9 @@ pub async fn projects_open(
     let pid = pid_resolved;
     let res = tokio::task::spawn_blocking(move || {
         let (_, db) = app.store.open_project(&path)?;
-        assert!(db.await_quiescent(std::time::Duration::from_secs(600)), "recovery index harus selesai");
+        if !db.await_quiescent(std::time::Duration::from_secs(600)) {
+            return Err(anyhow!("recovery index timeout"));
+        }
         // auto-watch (MEMORYBOX_WATCH=0 untuk mematikan)
         if std::env::var("MEMORYBOX_WATCH").as_deref() != Ok("0") && app.watches.ensure(&pid) {
             if let Err(e) = crate::watcher::spawn(
@@ -157,7 +188,7 @@ pub async fn index_scan(
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?
     .map_err(err500)?;
-    Ok(Json(serde_json::to_value(res).unwrap()))
+    Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
 }
 
 #[derive(Deserialize)]
@@ -372,20 +403,14 @@ pub async fn memory_write(
     match input.agent_id.as_deref() {
         Some(agent) => auth.require_agent(agent).map_err(auth_err)?,
         None if auth.allowed_agents().is_some() => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "agent_id wajib untuk token berscope agent" })),
-            ))
+            return Err(err400(anyhow!("agent_id wajib untuk token berscope agent")))
         }
         None => {}
     }
     match input.session_id.as_deref() {
         Some(session) => auth.require_session(session).map_err(auth_err)?,
         None if auth.allowed_sessions().is_some() => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "session_id wajib untuk token berscope session" })),
-            ))
+            return Err(err400(anyhow!("session_id wajib untuk token berscope session")))
         }
         None => {}
     }
@@ -679,10 +704,7 @@ pub async fn admin_revoke(
     } else if let Some(token) = input.token {
         crate::auth::token_key(&state.auth, &token).map_err(auth_err)?
     } else {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "token atau jti wajib" })),
-        ));
+        return Err(err400(anyhow!("token atau jti wajib")));
     };
     state.revoke_token(key.clone()).map_err(err500)?;
     Ok(Json(serde_json::json!({ "revoked": key })))
@@ -882,9 +904,10 @@ pub async fn documents_delete(
     if deleted {
         Ok(Json(serde_json::json!({ "deleted": response_uri })))
     } else {
-        Err((
+        Err(error_response(
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "document not found" })),
+            "E_NOT_FOUND",
+            "document not found",
         ))
     }
 }

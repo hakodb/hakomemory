@@ -26,7 +26,11 @@ async fn main() -> Result<()> {
     // PENTING (lihat docs/PLAN.md §0.2): Hako::open harus inisialisasi pool
     // rayon global PERTAMA sebelum embedder (candle/tokenizers) aktif.
     std::fs::create_dir_all(&data_dir)?;
-    let app_state = AppState::open(&data_dir)?;
+    let config_path = std::env::var("MEMORYBOX_CONFIG")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| data_dir.join(hakomemory_core::config::DEFAULT_CONFIG_FILE));
+    let config = hakomemory_core::config::FileConfig::load(&config_path)?;
+    let app_state = AppState::open_with_config(&data_dir, config)?;
     let app = router(app_state);
 
     // Endpoint permanen: default loopback; set MEMORYBOX_HOST ke IP internal

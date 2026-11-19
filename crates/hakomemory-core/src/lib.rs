@@ -7,6 +7,7 @@
 //! The server crate re-exports the engine modules and builds its HTTP adapter
 //! on top of this facade, so both paths share exactly the same logic.
 
+pub mod config;
 pub mod docs;
 pub mod embed;
 pub mod error;

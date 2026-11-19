@@ -8,7 +8,8 @@ pub mod auth;
 pub mod state;
 
 use axum::response::IntoResponse;
-use axum::Router;
+use axum::{Json, Router};
+use serde_json::json;
 use state::AppState;
 use std::sync::Arc;
 
@@ -74,7 +75,21 @@ pub fn router(app_state: Arc<AppState>) -> Router {
                 match state.auth.authenticate(req.headers(), &revoked) {
                     Ok(ctx) => {
                         if !state.rate.allow(&ctx.sub) {
-                            return axum::http::StatusCode::TOO_MANY_REQUESTS.into_response();
+                            let mut response = (
+                                axum::http::StatusCode::TOO_MANY_REQUESTS,
+                                Json(json!({
+                                    "error": {
+                                        "code": "E_RATE",
+                                        "message": "rate limit exceeded",
+                                        "request_id": format!("rate-{}", ctx.sub),
+                                    }
+                                })),
+                            )
+                                .into_response();
+                            if let Ok(value) = axum::http::HeaderValue::from_str("60") {
+                                response.headers_mut().insert("retry-after", value);
+                            }
+                            return response;
                         }
                         req.extensions_mut().insert(ctx);
                         next.run(req).await

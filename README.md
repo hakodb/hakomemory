@@ -26,8 +26,15 @@ plugins/
   agents/memory-box.md read-only codebase-analysis subagent
 AGENTS.md       repository instructions for any coding agent
 scripts/        token evaluation + distill end-to-end test
-docs/           design log + auth assessment
+docs/           CONCEPTS, API (+ openapi.json), MIGRATION, SECURITY, AUTH, design log
 ```
+
+## Documentation
+
+- [Concepts](docs/CONCEPTS.md) - projects, three modalities, retrieval, embedder
+- [API](docs/API.md) + [OpenAPI spec](docs/openapi.json) - HTTP routes, config, Rust library example
+- [Security](docs/SECURITY.md) and [Authentication](docs/AUTH.md)
+- [Migration](docs/MIGRATION.md) - schema versions and embedding changes
 
 ## Library use (no server)
 

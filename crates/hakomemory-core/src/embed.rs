@@ -4,6 +4,7 @@
 
 use anyhow::{anyhow, Result};
 use hakomemory_embed::{Embedder, HttpEmbedder, MockEmbedder, TextEmbedder};
+pub use hakomemory_embed::model_from_env;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -26,6 +27,18 @@ impl SharedEmbedder {
             }
         }
         let inner = Embedder::load(&hakomemory_embed::model_from_env(), Some(cache_dir))?;
+        Ok(Self { inner: Mutex::new(Box::new(inner)) })
+    }
+
+    /// HTTP backend chosen explicitly from config (no env lookup).
+    pub fn http(url: &str, token: Option<String>, dim: u32) -> Result<Self> {
+        let inner = HttpEmbedder::new(url, token, dim);
+        Ok(Self { inner: Mutex::new(Box::new(inner)) })
+    }
+
+    /// Load a model chosen by config (no environment lookup).
+    pub fn load_model(model: &str, cache_dir: &Path) -> Result<Self> {
+        let inner = Embedder::load(model, Some(cache_dir))?;
         Ok(Self { inner: Mutex::new(Box::new(inner)) })
     }
 

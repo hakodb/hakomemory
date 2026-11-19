@@ -15,6 +15,7 @@ pub mod graph;
 pub mod indexer;
 pub mod parser;
 pub mod retrieval;
+pub mod sources;
 pub mod store;
 pub mod watcher;
 

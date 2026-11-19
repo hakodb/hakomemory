@@ -23,15 +23,17 @@ All `/v1/*` routes (except `/healthz`) require a bearer token when
 - `GET /v1/symbols/lookup`
 
 ### Memory
-- `POST /v1/memory/write` / `/v1/memory/search` / `/v1/memory/forget`
+- `POST /v1/memory/write` — `wait_for_index: true` makes the response wait
+  for index/WAL settle (read-after-write); default false for latency
 
 ### Documents
 - `POST /v1/documents/upsert` / `/v1/documents/batch`
 - `GET /v1/documents/get?project_id=&source_uri=`
 - `GET /v1/documents/list?project_id=&collection=&limit=`
 - `POST /v1/documents/delete` / `/v1/documents/scan`
-- `POST /v1/documents/search` — `mode` (`vector|fts|hybrid`), `filters`, `k`,
-  `budget_tokens`, `citations`
+- `POST /v1/documents/search` — `mode` (`vector|fts|hybrid|hybridgraph`),
+  `filters`, `k`, `budget_tokens`, `citations`, `expand_parent`, `graph_via`,
+  `graph_hops`
 - `POST /v1/admin/migrate` — `dry_run`
 
 ### Graph

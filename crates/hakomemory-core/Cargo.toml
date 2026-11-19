@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 description = "Local-first embedded knowledge engine facade for HakoDB"
 
+[features]
+default = []
+source-pdf = ["dep:pdf-extract"]
+source-yaml = ["dep:serde_yaml"]
+
 [dependencies]
 anyhow = { workspace = true }
 serde = { workspace = true }
@@ -22,3 +27,5 @@ tree-sitter-python = "0.25.0"
 tree-sitter-go = "0.25.0"
 streaming-iterator = "0.1.9"
 notify = "8.2.2"
+pdf-extract = { version = "0.12", optional = true }
+serde_yaml = { version = "0.9", optional = true }

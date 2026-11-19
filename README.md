@@ -57,9 +57,12 @@ Document endpoints (all under `/v1`): `documents/upsert`, `documents/batch`,
 `documents/get`, `documents/list`, `documents/delete`, `documents/scan`,
 `documents/search` and `admin/migrate`. `GET /v1/documents/get` returns chunks
 with a `citation` object; `documents/scan` skips unchanged files via the
-`files` manifest. `documents/search` supports `vector`, `fts` and `hybrid`
-modes, pushes filters into the engine before candidate truncation, and applies
-`budget_tokens` before returning hits.
+`files` manifest. `documents/search` supports `vector`, `fts`, `hybrid` and `hybridgraph`
+modes, pushes filters into the engine before candidate truncation, applies
+`budget_tokens` before returning hits, can expand parent sections
+(`expand_parent`) and can follow generic `relations` edges (`graph_via`,
+`graph_hops`). The server crate can be built with `source-pdf` and
+`source-yaml` features; default build has no optional parser dependencies.
 
 Generic graph endpoints: `/v1/graph/rank`, `/community`, `/components`,
 `/degrees`, `/path`, `/subgraph`, `/cycle`, `/topo` and `/export`. All accept
@@ -76,6 +79,12 @@ Generic graph endpoints: `/v1/graph/rank`, `/community`, `/components`,
 - [x] Core axum server: multi-project store, `/v1/*`, memory CRUD
 - [x] Generic documents: Markdown frontmatter, header/fixed chunking, `files`
       manifest for idempotent reindex, citations (`source_uri`, heading, lines)
+- [x] Source adapters: Markdown/plaintext/HTML/JSON built in; optional PDF and
+      YAML frontmatter features; parent-child chunks with expansion
+- [x] Retrieval: vector/FTS/hybrid + GraphRAG expansion with filter pushdown,
+      token budget and citations
+- [x] Graph analytics: PageRank/community/components/degrees/path/subgraph/
+      cycle/topo/export with server-side `__ref__` normalization
 - [x] Lazy project open (restart-safe), request logging
 - [x] Tree-sitter indexer: symbols + call-graph + symbol lookup
 - [x] Auto-indexing watcher (notify, 1.5 s debounce, per-file rescan)

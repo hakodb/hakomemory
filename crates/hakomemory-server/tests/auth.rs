@@ -396,8 +396,17 @@ async fn backfill_owner_hanya_admin_dan_menyembunyikan_legacy() {
     assert!(out["stamped"].as_u64().unwrap() >= 1);
 
     let body = json!({ "project_id": pid, "kind": "semantic", "query": "rahasia legacy", "k": 5 });
-    let (_, a) = call_json(&app, "POST", "/v1/memory/search", body.clone(), Some(&alice)).await;
-    assert!(!a["hits"].as_array().unwrap().is_empty(), "alice harus melihat after backfill: {a}");
+    // Index/WAL settle is asynchronous; poll briefly instead of racing CI.
+    let mut visible = false;
+    for _ in 0..40 {
+        let (_, a) = call_json(&app, "POST", "/v1/memory/search", body.clone(), Some(&alice)).await;
+        if !a["hits"].as_array().unwrap().is_empty() {
+            visible = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(visible, "alice harus melihat after backfill");
     let (_, b) = call_json(&app, "POST", "/v1/memory/search", body, Some(&bob)).await;
     assert!(b["hits"].as_array().unwrap().is_empty(), "bob tidak boleh: {b}");
 }

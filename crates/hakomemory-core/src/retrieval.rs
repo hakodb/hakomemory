@@ -21,6 +21,8 @@ pub enum RetrievalMode {
     /// Reciprocal-rank fusion of vector + FTS (`hybrid_search_filtered`).
     #[default]
     Hybrid,
+    /// Hybrid seeds expanded through generic `relations` graph edges.
+    HybridGraph,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,6 +49,14 @@ pub struct RetrievalQuery {
     pub collection: Option<String>,
     #[serde(default = "default_citations")]
     pub citations: bool,
+    /// Include the parent section chunk in expanded hits.
+    #[serde(default)]
+    pub expand_parent: bool,
+    /// Edge collection used by `hybridgraph` expansion (default `relations`).
+    #[serde(default)]
+    pub graph_via: Option<String>,
+    #[serde(default = "default_graph_hops")]
+    pub graph_hops: usize,
 }
 
 fn default_k() -> usize {
@@ -59,6 +69,10 @@ fn default_rrf_k() -> usize {
 
 fn default_citations() -> bool {
     true
+}
+
+fn default_graph_hops() -> usize {
+    1
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -159,6 +173,58 @@ fn citation(doc: &HakoDoc) -> Citation {
     }
 }
 
+/// Collect document ids connected to a seed through generic edge documents
+/// (`_from`/`_to` references). Bounded BFS; embedded scale only.
+fn related_doc_ids(
+    db: &Hako,
+    seed: &str,
+    via: &str,
+    hops: usize,
+    limit: usize,
+) -> Vec<String> {
+    let mut frontier = std::collections::HashSet::from([seed.to_string()]);
+    let mut visited = frontier.clone();
+    let mut output = Vec::new();
+    for _ in 0..hops.clamp(1, 4) {
+        if output.len() >= limit {
+            break;
+        }
+        let rows = db
+            .query(Query::new(via).limit(limit.max(100)))
+            .unwrap_or_default();
+        let mut next = std::collections::HashSet::new();
+        for (_, doc) in rows {
+            let (from, to) = match (doc.get("_from"), doc.get("_to")) {
+                (Some(Value::Reference { collection: fc, doc_id: fi }),
+                 Some(Value::Reference { collection: tc, doc_id: ti })) => {
+                    ((fc, fi), (tc, ti))
+                }
+                _ => continue,
+            };
+            if from.0.as_str() != docs::DOCUMENTS && to.0.as_str() != docs::DOCUMENTS {
+                continue;
+            }
+            if from.0.as_str() == docs::DOCUMENTS && frontier.contains(from.1.as_str())
+                && visited.insert(to.1.clone())
+            {
+                output.push(to.1.clone());
+                next.insert(to.1.clone());
+            }
+            if to.0.as_str() == docs::DOCUMENTS && frontier.contains(to.1.as_str())
+                && visited.insert(from.1.clone())
+            {
+                output.push(from.1.clone());
+                next.insert(from.1.clone());
+            }
+        }
+        frontier = next;
+        if frontier.is_empty() {
+            break;
+        }
+    }
+    output
+}
+
 /// Retrieve chunks. Filters go into the engine admission path before any
 /// side-candidate truncation, so `k` and the FTS 4096 cap do not lose matches.
 pub fn search(
@@ -172,7 +238,7 @@ pub fn search(
     let vector = embedder.embed_one(&request.query)?;
 
     let mut candidates: Vec<(String, f64, HakoDoc)> = match request.mode {
-        RetrievalMode::Hybrid => db.hybrid_search_filtered(
+        RetrievalMode::Hybrid | RetrievalMode::HybridGraph => db.hybrid_search_filtered(
             docs::CHUNKS,
             "content",
             &request.query,
@@ -204,6 +270,38 @@ pub fn search(
         }
     };
 
+    if request.mode == RetrievalMode::HybridGraph {
+        let via = request
+            .graph_via
+            .clone()
+            .unwrap_or_else(|| "relations".to_string());
+        let seeds: Vec<String> = candidates
+            .iter()
+            .take(5)
+            .map(|(_, _, doc)| str_field(doc, "doc_id"))
+            .filter(|id| !id.is_empty())
+            .collect();
+        let mut related = Vec::new();
+        for seed in seeds {
+            related.extend(related_doc_ids(db, &seed, &via, request.graph_hops, pool));
+        }
+        let mut seen: std::collections::HashSet<String> =
+            candidates.iter().map(|(id, _, _)| id.clone()).collect();
+        for document_id in related {
+            let mut query = Query::new(docs::CHUNKS)
+                .where_filter("doc_id", Operator::Eq, Value::String(document_id))
+                .limit(pool);
+            for filter in &filters {
+                query = query.where_filter(&filter.field, filter.op, filter.value.clone());
+            }
+            for (id, doc) in db.query(query).unwrap_or_default() {
+                if seen.insert(id.clone()) {
+                    candidates.push((id, 0.0, doc));
+                }
+            }
+        }
+    }
+
     candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let budget = request.budget_tokens;
@@ -213,7 +311,17 @@ pub fn search(
         if hits.len() >= k {
             break;
         }
-        let text = str_field(&doc, "content");
+        let mut text = str_field(&doc, "content");
+        if request.expand_parent {
+            if let Some(Value::String(parent_id)) = doc.get("parent_id") {
+                if let Ok(Some(parent)) = db.get(docs::CHUNKS, parent_id) {
+                    let parent_text = str_field(&parent, "content");
+                    if !parent_text.is_empty() && parent_text != text {
+                        text = format!("{parent_text}\n{text}");
+                    }
+                }
+            }
+        }
         let tokens = text.chars().count().div_ceil(4);
         if let Some(budget) = budget {
             if used_tokens + tokens > budget {

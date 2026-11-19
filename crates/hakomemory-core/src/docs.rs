@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 pub const DOCUMENTS: &str = "documents";
 pub const CHUNKS: &str = "chunks";
 pub const FILES: &str = "files";
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -69,6 +69,7 @@ pub struct Citation {
 pub struct ChunkView {
     pub ord: usize,
     pub text: String,
+    pub parent_id: Option<String>,
     pub citation: Citation,
 }
 
@@ -117,6 +118,8 @@ pub struct Chunk {
     pub start_line: usize,
     pub end_line: usize,
     pub heading_path: String,
+    /// Ord of the containing section chunk (header-aware chunking only).
+    pub parent_ord: Option<usize>,
 }
 
 pub trait Chunker {
@@ -131,7 +134,7 @@ pub struct FixedChunker {
 impl Chunker for FixedChunker {
     fn chunk(&self, content: &str) -> Vec<Chunk> {
         let lines: Vec<&str> = content.lines().collect();
-        windows(&lines, 1, "", self.max_lines, self.overlap)
+        windows(&lines, 1, "", self.max_lines, self.overlap, None)
     }
 }
 
@@ -171,8 +174,34 @@ impl Chunker for HeaderChunker {
 
         let mut out = Vec::new();
         for (start, section_lines, heading) in sections {
-            let part = windows(&section_lines, start, &heading, self.max_lines, self.overlap);
-            out.extend(part);
+            let parts = windows(
+                &section_lines,
+                start,
+                &heading,
+                self.max_lines,
+                self.overlap,
+                None,
+            );
+            if parts.len() > 1 {
+                let parent_ord = out.len();
+                out.push(Chunk {
+                    ord: parent_ord,
+                    text: section_lines.join("\n").trim().to_string(),
+                    start_line: start,
+                    end_line: start + section_lines.len() - 1,
+                    heading_path: heading.clone(),
+                    parent_ord: None,
+                });
+                for mut part in parts {
+                    part.parent_ord = Some(parent_ord);
+                    out.push(part);
+                }
+            } else {
+                out.extend(parts);
+            }
+        }
+        for (ord, chunk) in out.iter_mut().enumerate() {
+            chunk.ord = ord;
         }
         out
     }
@@ -197,6 +226,7 @@ fn windows(
     heading: &str,
     max_lines: usize,
     overlap: usize,
+    parent_ord: Option<usize>,
 ) -> Vec<Chunk> {
     let max_lines = max_lines.max(1);
     let overlap = overlap.clamp(0, max_lines.saturating_sub(1));
@@ -213,6 +243,7 @@ fn windows(
                 start_line: offset + start,
                 end_line: offset + end - 1,
                 heading_path: heading.to_string(),
+                parent_ord,
             });
         }
         if end == lines.len() {
@@ -234,17 +265,25 @@ pub fn split_frontmatter(content: &str) -> (serde_json::Value, &str) {
         return (serde_json::Value::Object(Default::default()), content);
     };
     let mut map = serde_json::Map::new();
-    for line in front.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
+    #[cfg(feature = "source-yaml")]
+    if let Ok(parsed) = serde_yaml::from_str::<serde_json::Value>(front) {
+        if let Some(object) = parsed.as_object() {
+            map = object.clone();
         }
-        if let Some((key, value)) = line.split_once(':') {
-            let key = key.trim();
-            let value = value.trim().trim_matches('"').to_string();
-            let parsed = serde_json::from_str(&value)
-                .unwrap_or(serde_json::Value::String(value.clone()));
-            map.insert(key.to_string(), parsed);
+    }
+    if map.is_empty() {
+        for line in front.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once(':') {
+                let key = key.trim();
+                let value = value.trim().trim_matches('"').to_string();
+                let parsed = serde_json::from_str(&value)
+                    .unwrap_or(serde_json::Value::String(value.clone()));
+                map.insert(key.to_string(), parsed);
+            }
         }
     }
     let rest = rest.strip_prefix('\n').or_else(|| rest.strip_prefix("\r\n")).unwrap_or(rest);
@@ -393,6 +432,9 @@ pub fn upsert_document(
         doc.insert("start_line", Value::Int(chunk.start_line as i64));
         doc.insert("end_line", Value::Int(chunk.end_line as i64));
         doc.insert("collection", Value::String(collection.clone()));
+        if let Some(parent) = chunk.parent_ord {
+            doc.insert("parent_id", Value::String(chunk_id(&id, parent)));
+        }
         db.put(CHUNKS, &chunk_id(&id, ord), &doc)?;
     }
 
@@ -451,6 +493,10 @@ pub fn get_document(db: &Hako, source_uri: &str) -> Result<Option<DocumentView>>
         chunks.push(ChunkView {
             ord,
             text: str_field(&chunk, "content"),
+            parent_id: match chunk.get("parent_id") {
+                Some(Value::String(parent)) => Some(parent.clone()),
+                _ => None,
+            },
             citation: Citation {
                 document_id: id.clone(),
                 source_uri: str_field(&chunk, "source_uri"),
@@ -522,12 +568,7 @@ fn collect_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> Re
             if !matches!(name.as_str(), ".git" | "node_modules" | "target" | ".cache") {
                 collect_files(&path, out)?;
             }
-        } else if path.is_file()
-            && matches!(
-                path.extension().and_then(|ext| ext.to_str()),
-                Some("md" | "markdown" | "txt")
-            )
-        {
+        } else if path.is_file() && crate::sources::adapter_for(&path).is_some() {
             out.push(path);
         }
     }
@@ -548,14 +589,20 @@ pub fn scan_directory(
     for path in files {
         let source_uri = path.to_string_lossy().to_string();
         seen.insert(source_uri.clone());
-        let content = match std::fs::read_to_string(&path) {
-            Ok(content) if content.len() <= 4 * 1024 * 1024 => content,
-            _ => {
+        let extracted = match crate::sources::adapter_for(&path) {
+            Some(adapter) => match adapter.extract(&path) {
+                Ok(extracted) => extracted,
+                Err(_) => {
+                    summary.failed += 1;
+                    continue;
+                }
+            },
+            None => {
                 summary.failed += 1;
                 continue;
             }
         };
-        let hash = digest_hex(&content);
+        let hash = digest_hex(&extracted.text);
         let mtime = std::fs::metadata(&path)
             .ok()
             .and_then(|meta| meta.modified().ok())
@@ -567,7 +614,9 @@ pub fn scan_directory(
         }
         let mut doc_input = input.clone();
         doc_input.source_uri = source_uri;
-        doc_input.content = content;
+        doc_input.content = extracted.text;
+        doc_input.title = extracted.title;
+        doc_input.metadata = Some(extracted.metadata);
         doc_input.mtime = mtime;
         match upsert_document(db, embedder, doc_input) {
             Ok(_) => summary.indexed += 1,
@@ -646,6 +695,18 @@ mod tests {
         assert_eq!(chunks[0].start_line, 1);
         assert_eq!(chunks[1].heading_path, "Title > Section");
         assert_eq!(chunks[1].end_line, 6);
+    }
+
+    #[test]
+    fn header_chunker_creates_parent_for_long_section() {
+        let content = format!("# Title\n{}", "body line\n".repeat(12));
+        let chunks = HeaderChunker { max_lines: 5, overlap: 1 }.chunk(&content);
+        assert!(chunks.len() > 2);
+        assert!(chunks
+            .iter()
+            .any(|chunk| chunk.parent_ord.is_none() && chunk.text.starts_with("# Title")));
+        assert!(chunks.iter().any(|chunk| chunk.parent_ord.is_some()));
+        assert!(chunks.iter().enumerate().all(|(index, chunk)| chunk.ord == index));
     }
 
     #[test]

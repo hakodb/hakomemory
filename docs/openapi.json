@@ -160,13 +160,16 @@
         "properties": {
           "project_id": { "type": "string" },
           "query": { "type": "string" },
-          "mode": { "type": "string", "enum": ["vector", "fts", "hybrid"] },
+          "mode": { "type": "string", "enum": ["vector", "fts", "hybrid", "hybridgraph"] },
           "filters": { "type": "array", "items": { "$ref": "#/components/schemas/FilterSpec" } },
           "k": { "type": "integer" },
           "rrf_k": { "type": "integer" },
           "budget_tokens": { "type": "integer" },
           "collection": { "type": "string" },
-          "citations": { "type": "boolean" }
+          "citations": { "type": "boolean" },
+          "expand_parent": { "type": "boolean" },
+          "graph_via": { "type": "string" },
+          "graph_hops": { "type": "integer" }
         }
       },
       "FilterSpec": {

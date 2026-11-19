@@ -272,7 +272,7 @@ async fn bad_requests_are_rejected() {
     let (app, dir) = test_app();
     let pid = open_project(&app, &dir).await;
 
-    // kind memory tidak dikenal → 400 (bukan 500)
+    // kind memory tidak dikenal â†’ 400 (bukan 500)
     let (status, _) = call(
         &app,
         "POST",
@@ -282,7 +282,7 @@ async fn bad_requests_are_rejected() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    // path/alias hilang → 400 (keduanya opsional di schema, tapi salah satu wajib)
+    // path/alias hilang â†’ 400 (keduanya opsional di schema, tapi salah satu wajib)
     let (status, _) = call(
         &app,
         "POST",
@@ -295,4 +295,32 @@ async fn bad_requests_are_rejected() {
     // index/status memakai query string, bukan body JSON
     let (status, _) = call(&app, "GET", "/v1/index/status", json!({})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn memory_write_can_wait_for_index() {
+    let (app, dir) = test_app();
+    let pid = open_project(&app, &dir).await;
+    let (status, written) = call(
+        &app,
+        "POST",
+        "/v1/memory/write",
+        json!({
+            "project_id": pid,
+            "kind": "semantic",
+            "text": "read after write marker",
+            "wait_for_index": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{written}");
+    let (status, hits) = call(
+        &app,
+        "POST",
+        "/v1/memory/search",
+        json!({ "project_id": pid, "query": "read after write marker", "k": 5 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{hits}");
+    assert!(!hits["hits"].as_array().unwrap().is_empty());
 }

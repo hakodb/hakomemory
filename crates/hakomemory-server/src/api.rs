@@ -174,16 +174,17 @@ pub async fn index_scan(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
     validate_ingest_path(&auth, &input.path)?;
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let embedder = state.embedder.clone();
     // Feed the original path to the indexer: canonicalize on Windows yields
     // short (8.3) paths that break relative-path computation against `meta`.
     let (pid, path) = (input.project_id.clone(), input.path.clone());
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
         // rel selalu terhadap root project (meta); fallback: path scan
-        let base = crate::store::read_root(&db)?.unwrap_or_else(|| path.clone());
-        indexer::scan(&db, &embedder, std::path::Path::new(&base), std::path::Path::new(&path))
+        let base = crate::store::read_root(db)?.unwrap_or_else(|| path.clone());
+        indexer::scan(db, &embedder, std::path::Path::new(&base), std::path::Path::new(&path))
     })
     .await
     .map_err(|e| err500(anyhow!("join: {e}")))?
@@ -205,18 +206,19 @@ pub async fn index_remove(
     Json(input): Json<IndexRemove>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let (pid, path) = (input.project_id.clone(), input.path.clone());
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
-        let base = crate::store::read_root(&db)?.unwrap_or_default();
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
+        let base = crate::store::read_root(db)?.unwrap_or_default();
         // terima rel atau absolut
         let rel = if std::path::Path::new(&path).is_absolute() {
             indexer::rel_of_pub(std::path::Path::new(&path), std::path::Path::new(&base))
         } else {
             path
         };
-        let removed = indexer::remove_rel(&db, &rel)?;
+        let removed = indexer::remove_rel(db, &rel)?;
         Ok::<_, anyhow::Error>(serde_json::json!({ "removed": removed, "rel": rel }))
     })
     .await
@@ -236,10 +238,11 @@ pub async fn index_status(
     Query(input): Query<IndexStatus>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let pid = input.project_id.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
         Ok::<_, anyhow::Error>(serde_json::json!({
             "vector_complete": db.vector_index_complete("chunks", "emb"),
             "quiescent": db.is_quiescent(),
@@ -305,13 +308,14 @@ pub async fn graph_context(
         .seed
         .split_once('/')
         .ok_or_else(|| err400(anyhow!("seed harus berformat collection/id")))?;
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let hops = input.hops.clamp(1, 8);
     let col = col.to_string();
     let id = id.to_string();
     let pid = input.project_id.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
         let spec = hakodb::index::traverse::TraverseSpec {
             direction: hakodb::index::traverse::TraverseDir::Both,
             via_edge: Some("edges".into()),
@@ -355,11 +359,12 @@ pub async fn symbols_lookup(
     Json(input): Json<SymbolsLookup>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let (pid, name, k) = (input.project_id.clone(), input.name.clone(), input.k);
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
-        let rows = crate::indexer::lookup_symbol(&db, &name, k.min(50))?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
+        let rows = crate::indexer::lookup_symbol(db, &name, k.min(50))?;
         let hits: Vec<serde_json::Value> = rows
             .iter()
             .map(|(id, doc)| {
@@ -392,6 +397,9 @@ pub struct MemoryWrite {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Wait for index/WAL to settle before responding (read-after-write).
+    #[serde(default)]
+    pub wait_for_index: bool,
 }
 
 pub async fn memory_write(
@@ -415,7 +423,7 @@ pub async fn memory_write(
         None => {}
     }
     let col = memory_col(&input.kind).map_err(err400)?;
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let embedder = state.embedder.clone();
     let pid = input.project_id.clone();
     let text = input.text.clone();
@@ -423,8 +431,10 @@ pub async fn memory_write(
     let sub = auth.sub.clone();
     let agent_id = input.agent_id.clone();
     let session_id = input.session_id.clone();
+    let wait_for_index = input.wait_for_index;
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
         let emb = embedder.embed_one(&text)?;
         let id = {
             use sha2::{Digest, Sha256};
@@ -461,6 +471,11 @@ pub async fn memory_write(
             );
         }
         db.put(col, &id, &d)?;
+        if wait_for_index
+            && !db.await_quiescent(std::time::Duration::from_secs(10))
+        {
+            return Err(anyhow!("index settle timeout after memory write"));
+        }
         Ok::<_, anyhow::Error>(serde_json::json!({ "id": id, "collection": col }))
     })
     .await
@@ -497,7 +512,7 @@ pub async fn memory_search(
             .map(|c| (c.to_string(), c[4..].to_string())) // mem_episodic -> episodic
             .collect(),
     };
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
     // v0.21.0: filter owner + scope agent/session ditaruh di engine
@@ -540,7 +555,8 @@ pub async fn memory_search(
         });
     }
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
         let qv = embedder.embed_one(&query)?;
         // k per koleksi lalu merge-score, ambil k terbaik
         let mut hits: Vec<serde_json::Value> = Vec::new();
@@ -596,7 +612,7 @@ pub async fn memory_forget(
         auth.require_session(session).map_err(auth_err)?;
     }
     let col = memory_col(&input.kind).map_err(err400)?;
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let (pid, id) = (input.project_id.clone(), input.id.clone());
     let sub = auth.sub.clone();
     let is_admin = auth.admin;
@@ -605,7 +621,8 @@ pub async fn memory_forget(
     let allowed_agents = auth.allowed_agents();
     let allowed_sessions = auth.allowed_sessions();
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
         if let Some(doc) = db.get(col, &id)? {
             let field_eq = |doc: &HakoDoc, field: &str, expected: &str| {
                 matches!(doc.get(field), Some(Value::String(v)) if v == expected)
@@ -660,10 +677,11 @@ pub async fn admin_backfill_owner(
         Some(k) => vec![memory_col(k).map_err(err400)?.to_string()],
         None => crate::store::MEMORY_COLLECTIONS.iter().map(|c| c.to_string()).collect(),
     };
-    let store = state.store.clone();
+    let engine = state.engine.clone();
     let (pid, owner) = (input.project_id.clone(), input.user_id.clone());
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
+        let project = engine.project_by_id(&pid)?;
+        let db = project.db();
         let mut stamped = 0usize;
         for col in cols {
             let q = hakodb::query::query::Query::new(&col).limit(100_000);
@@ -675,6 +693,9 @@ pub async fn admin_backfill_owner(
                     stamped += 1;
                 }
             }
+        }
+        if stamped > 0 && !db.await_quiescent(std::time::Duration::from_secs(10)) {
+            return Err(anyhow!("index settle timeout after owner backfill"));
         }
         Ok::<_, anyhow::Error>(serde_json::json!({ "stamped": stamped }))
     })

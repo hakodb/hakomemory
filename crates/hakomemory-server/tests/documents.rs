@@ -158,7 +158,7 @@ async fn directory_scan_uses_manifest_and_migration_is_idempotent() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{report}");
-    assert_eq!(report["schema_version_after"], 2);
+    assert_eq!(report["schema_version_after"], 3);
     assert_eq!(report["backfilled"], 0);
 }
 
@@ -230,4 +230,130 @@ async fn document_search_filters_before_budget_and_returns_citations() {
     assert_eq!(status, StatusCode::OK, "{tiny}");
     assert!(tiny["used_tokens"].as_u64().unwrap() <= 4, "budget exceeded: {tiny}");
     assert_eq!(tiny["mode"], "vector");
+}
+#[tokio::test]
+async fn hybridgraph_expands_related_documents() {
+    let dir = temp_root();
+    let root = temp_root();
+    let state = AppState::open_mock_with_dim(&dir, 384).unwrap();
+    let app = router(state.clone());
+    let pid = open_project(&app, &root).await;
+
+    let (_, a) = call(
+        &app,
+        "POST",
+        "/v1/documents/upsert",
+        json!({
+            "project_id": pid,
+            "source_uri": "wiki/a.md",
+            "content": "# A\nalphaonly marker\n",
+            "collection": "wiki"
+        }),
+    )
+    .await;
+    let (_, b) = call(
+        &app,
+        "POST",
+        "/v1/documents/upsert",
+        json!({
+            "project_id": pid,
+            "source_uri": "wiki/b.md",
+            "content": "# B\nbetaonly marker\n",
+            "collection": "wiki"
+        }),
+    )
+    .await;
+    let (id_a, id_b) = (a["id"].as_str().unwrap(), b["id"].as_str().unwrap());
+
+    {
+        use hakodb::document::hako_doc::HakoDoc;
+        use hakodb::document::value::Value;
+        let db = state.store.get(&pid).unwrap();
+        let mut relation = HakoDoc::default();
+        relation.insert(
+            "_from",
+            Value::Reference { collection: "documents".into(), doc_id: id_a.into() },
+        );
+        relation.insert(
+            "_to",
+            Value::Reference { collection: "documents".into(), doc_id: id_b.into() },
+        );
+        db.put("relations", "rel-1", &relation).unwrap();
+    }
+
+    let (status, result) = call(
+        &app,
+        "POST",
+        "/v1/documents/search",
+        json!({
+            "project_id": pid,
+            "query": "alphaonly marker",
+            "mode": "hybridgraph",
+            "graph_via": "relations",
+            "graph_hops": 1,
+            "k": 10
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    let hits = result["hits"].as_array().unwrap();
+    assert!(
+        hits.iter().any(|hit| hit["citation"]["source_uri"] == "wiki/b.md"),
+        "graph expansion should surface related document: {result}"
+    );
+}
+
+#[tokio::test]
+async fn parent_expansion_and_html_json_scan() {
+    let dir = temp_root();
+    let root = temp_root();
+    std::fs::write(root.join("long.md"), "# Long\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n").unwrap();
+    std::fs::write(root.join("page.html"), "<html><head><title>Page</title></head><body><p>hellohtml</p></body></html>").unwrap();
+    std::fs::write(root.join("data.json"), r#"{"note":"hellojson"}"#).unwrap();
+    let app = router(AppState::open_mock_with_dim(&dir, 384).unwrap());
+    let pid = open_project(&app, &root).await;
+
+    let (status, report) = call(
+        &app,
+        "POST",
+        "/v1/documents/scan",
+        json!({
+            "project_id": pid,
+            "path": root.to_string_lossy(),
+            "collection": "mixed",
+            "strategy": "header",
+            "max_lines": 3
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["indexed"], 3, "{report}");
+
+    let uri = format!(
+        "/v1/documents/get?project_id={}&source_uri=wiki%2Flong.md",
+        pid
+    );
+    // long.md was scanned with an absolute source_uri, so verify parent via
+    // search instead (fts mode needs no URL encoding).
+    let (status, result) = call(
+        &app,
+        "POST",
+        "/v1/documents/search",
+        json!({
+            "project_id": pid,
+            "query": "l7",
+            "mode": "fts",
+            "k": 5,
+            "expand_parent": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    let hits = result["hits"].as_array().unwrap();
+    assert!(!hits.is_empty(), "{result}");
+    assert!(
+        hits.iter().any(|hit| hit["text"].as_str().unwrap().contains("l1")),
+        "parent section text should be expanded: {result}"
+    );
+    let _ = uri;
 }

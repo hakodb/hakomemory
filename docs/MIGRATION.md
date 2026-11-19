@@ -2,7 +2,9 @@
 
 ## Schema version
 
-`meta/schema_version` stores the data contract version (currently `2`).
+`meta/schema_version` stores the data contract version (currently `3`).
+Version 2 added generic documents; version 3 added parent-child chunk ids
+(`parent_id`) with no re-embedding.
 `POST /v1/admin/migrate` with `dry_run: true` reports the version and fields
 to backfill; with `dry_run: false` it writes defaults without re-embedding.
 

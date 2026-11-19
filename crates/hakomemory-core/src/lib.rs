@@ -7,6 +7,7 @@
 //! The server crate re-exports the engine modules and builds its HTTP adapter
 //! on top of this facade, so both paths share exactly the same logic.
 
+pub mod docs;
 pub mod embed;
 pub mod error;
 pub mod indexer;
@@ -127,6 +128,10 @@ impl ProjectHandle {
 
     pub fn db(&self) -> &Hako {
         &self.db
+    }
+
+    pub fn embedder_handle(&self) -> Arc<SharedEmbedder> {
+        self.embedder.clone()
     }
 
     /// Index a directory/file into this project, same semantics as

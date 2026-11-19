@@ -46,12 +46,19 @@ let hits = project.retrieve("how does hybrid search work?", 8, 60)?;
 `MEMORYBOX_*` env var is read by the library. The HTTP server is a thin adapter
 that shares the same `ProjectStore` and modules through `hakomemory-core`.
 
+Document endpoints (all under `/v1`): `documents/upsert`, `documents/batch`,
+`documents/get`, `documents/list`, `documents/delete`, `documents/scan` and
+`admin/migrate`. `GET /v1/documents/get` returns chunks with a `citation`
+object; `documents/scan` skips unchanged files via the `files` manifest.
+
 ## Status
 
 - [x] Repo init, MIT license, design log
 - [x] POC: HakoDB v0.21.0 (`hybrid_search_filtered`, `subgraph_json_projected`, `graph_pagerank`)
 - [x] Local MiniLM embedder (candle, mean pooling + L2 normalization)
 - [x] Core axum server: multi-project store, `/v1/*`, memory CRUD
+- [x] Generic documents: Markdown frontmatter, header/fixed chunking, `files`
+      manifest for idempotent reindex, citations (`source_uri`, heading, lines)
 - [x] Lazy project open (restart-safe), request logging
 - [x] Tree-sitter indexer: symbols + call-graph + symbol lookup
 - [x] Auto-indexing watcher (notify, 1.5 s debounce, per-file rescan)

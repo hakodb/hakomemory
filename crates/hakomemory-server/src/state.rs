@@ -2,8 +2,8 @@
 //! embedder candle — urutan ini terkunci, lihat docs/PLAN.md §0.2.
 
 use crate::auth::{AuthContext, AuthConfig};
-use crate::embed::SharedEmbedder;
-use crate::store::{EmbeddingSpec, ProjectStore};
+use hakomemory_core::store::ProjectStore;
+use hakomemory_core::{embed::SharedEmbedder, store::EmbeddingSpec, Engine};
 use crate::watcher;
 use anyhow::{Context, Result};
 use axum::http::StatusCode;
@@ -90,6 +90,7 @@ impl AliasRegistry {
 }
 
 pub struct AppState {
+    pub engine: Arc<Engine>,
     pub store: Arc<ProjectStore>,
     pub embedder: Arc<SharedEmbedder>,
     pub watches: watcher::WatchRegistry,
@@ -174,7 +175,9 @@ impl AppState {
         auth: Arc<AuthConfig>,
         rate: RateLimiter,
     ) -> Arc<Self> {
+        let engine = Arc::new(Engine::from_store(store.clone(), embedder.clone()));
         Arc::new(Self {
+            engine,
             store,
             embedder,
             watches: watcher::WatchRegistry::default(),

@@ -238,25 +238,11 @@ pub async fn retrieve(
     Json(input): Json<Retrieve>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
-    let store = state.store.clone();
-    let embedder = state.embedder.clone();
     let (pid, query, k) = (input.project_id.clone(), input.query.clone(), input.k);
+    let engine = state.engine.clone();
     let res = tokio::task::spawn_blocking(move || {
-        let db = store.get(&pid)?;
-        let qv = embedder.embed_one(&query)?;
-        let rows = db.hybrid_search("chunks", "content", &query, "emb", &qv, k, 60)?;
-        let hits: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|(id, score, doc)| {
-                serde_json::json!({
-                    "id": id,
-                    "score": score,
-                    "path": str_field(doc, "path"),
-                    "content": str_field(doc, "content"),
-                    "start_line": int_field(doc, "start_line"),
-                })
-            })
-            .collect();
+        let project = engine.project_by_id(&pid)?;
+        let hits = project.retrieve(&query, k, 60)?;
         Ok::<_, anyhow::Error>(serde_json::json!({ "hits": hits }))
     })
     .await

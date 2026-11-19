@@ -1143,6 +1143,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "hakomemory-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hakodb",
+ "hakomemory-embed",
+ "notify",
+ "serde",
+ "serde_json",
+ "sha2",
+ "streaming-iterator",
+ "tokio",
+ "tracing",
+ "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+]
+
+[[package]]
 name = "hakomemory-embed"
 version = "0.1.0"
 dependencies = [
@@ -1193,23 +1215,15 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "hakodb",
- "hakomemory-embed",
+ "hakomemory-core",
  "hmac",
- "notify",
  "serde",
  "serde_json",
  "sha2",
- "streaming-iterator",
  "tokio",
  "tower",
  "tracing",
  "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-go",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
 ]
 
 [[package]]

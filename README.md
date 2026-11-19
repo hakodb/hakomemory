@@ -14,6 +14,7 @@ work log. HakoDB v0.21.0 adoption (issue #217) is tracked in
 
 ```
 crates/
+  hakomemory-core/      library facade: Engine/EngineConfig + engine modules (no server, no env)
   hakomemory-poc/       Phase-1 POC: HakoDB wave-1 API + local embedder (done)
   hakomemory-embed/     local text embedding: multilingual MiniLM 384d (candle, pure Rust)
   hakomemory-server/    axum server + hakomemory-mcp stdio MCP adapter
@@ -27,6 +28,23 @@ AGENTS.md       repository instructions for any coding agent
 scripts/        token evaluation + distill end-to-end test
 docs/           design log + auth assessment
 ```
+
+## Library use (no server)
+
+```rust
+use hakomemory_core::embed::SharedEmbedder;
+use hakomemory_core::{Engine, EngineConfig};
+
+let embedder = std::sync::Arc::new(SharedEmbedder::mock(384)); // or your own backend
+let engine = Engine::open(EngineConfig::new("./data", embedder))?;
+let project = engine.project("/absolute/project/root")?;
+let report = project.scan(std::path::Path::new("/absolute/project/root"))?;
+let hits = project.retrieve("how does hybrid search work?", 8, 60)?;
+```
+
+`EngineConfig` carries data dir, embedder, embedding spec and LRU limits; no
+`MEMORYBOX_*` env var is read by the library. The HTTP server is a thin adapter
+that shares the same `ProjectStore` and modules through `hakomemory-core`.
 
 ## Status
 

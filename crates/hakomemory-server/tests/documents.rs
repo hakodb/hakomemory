@@ -161,3 +161,73 @@ async fn directory_scan_uses_manifest_and_migration_is_idempotent() {
     assert_eq!(report["schema_version_after"], 2);
     assert_eq!(report["backfilled"], 0);
 }
+
+#[tokio::test]
+async fn document_search_filters_before_budget_and_returns_citations() {
+    let dir = temp_root();
+    let root = temp_root();
+    let app = router(AppState::open_mock_with_dim(&dir, 384).unwrap());
+    let pid = open_project(&app, &root).await;
+
+    for (uri, collection, text) in [
+        ("wiki/rag.md", "wiki", "# RAG\nHybrid search fuses FTS and vectors with filters.\n"),
+        ("notes/other.md", "other", "# Other\nHybrid search notes from another collection.\n"),
+    ] {
+        let (status, upserted) = call(
+            &app,
+            "POST",
+            "/v1/documents/upsert",
+            json!({
+                "project_id": pid,
+                "source_uri": uri,
+                "content": text,
+                "collection": collection,
+                "strategy": "header"
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{upserted}");
+    }
+
+    let (status, result) = call(
+        &app,
+        "POST",
+        "/v1/documents/search",
+        json!({
+            "project_id": pid,
+            "query": "hybrid search",
+            "mode": "hybrid",
+            "filters": [{"field": "collection", "op": "eq", "value": "wiki"}],
+            "k": 5,
+            "budget_tokens": 200,
+            "citations": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    let hits = result["hits"].as_array().unwrap();
+    assert!(!hits.is_empty(), "expected filtered hybrid hits: {result}");
+    assert!(
+        hits.iter().all(|hit| hit["citation"]["source_uri"] == "wiki/rag.md"),
+        "filter must exclude the other collection: {result}"
+    );
+    assert!(hits.iter().all(|hit| !hit["citation"]["document_id"].as_str().unwrap().is_empty()));
+    assert!(hits.iter().all(|hit| hit["citation"]["end_line"].as_u64().unwrap() > 0));
+
+    let (status, tiny) = call(
+        &app,
+        "POST",
+        "/v1/documents/search",
+        json!({
+            "project_id": pid,
+            "query": "hybrid search",
+            "mode": "vector",
+            "k": 5,
+            "budget_tokens": 4
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{tiny}");
+    assert!(tiny["used_tokens"].as_u64().unwrap() <= 4, "budget exceeded: {tiny}");
+    assert_eq!(tiny["mode"], "vector");
+}

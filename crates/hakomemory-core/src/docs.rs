@@ -56,7 +56,7 @@ pub fn default_max_lines() -> usize {
     40
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Citation {
     pub document_id: String,
     pub source_uri: String,

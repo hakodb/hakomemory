@@ -1,13 +1,11 @@
 //! memory-box server: router + state untuk dipakai binary dan integration test.
+//! Engine logic lives in `hakomemory-core`; modules are re-exported here so
+//! existing `/v1/*` handlers and downstream imports keep working unchanged.
 
+pub use hakomemory_core::{embed, indexer, parser, store, watcher};
 pub mod api;
 pub mod auth;
-pub mod embed;
-pub mod indexer;
-pub mod parser;
 pub mod state;
-pub mod store;
-pub mod watcher;
 
 use axum::response::IntoResponse;
 use axum::Router;

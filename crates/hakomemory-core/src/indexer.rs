@@ -144,7 +144,7 @@ fn push_file_rec(result: &mut Vec<PathBuf>, path: &Path) {
 }
 
 /// Hasil scan untuk API.
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct ScanReport {
     pub files: usize,
     pub chunks: usize,

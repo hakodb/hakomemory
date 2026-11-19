@@ -1226,7 +1226,7 @@ dependencies = [
 
 [[package]]
 name = "hakomemory-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hakodb",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "hakomemory-embed"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "hakomemory-embed-adapter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -1273,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "hakomemory-embed-srv"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hakomemory-embed",
@@ -1282,7 +1282,7 @@ dependencies = [
 
 [[package]]
 name = "hakomemory-poc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hakodb",
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "hakomemory-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",

@@ -294,7 +294,7 @@ pub async fn graph_context(
             include_path: false,
             include_via: false,
         };
-        // v0.21.0: proyeksi di engine — `emb` tidak pernah ikut di-serialize.
+        // v0.21.0: proyeksi di engine â€” `emb` tidak pernah ikut di-serialize.
         const FIELDS: &[&str] = &[
             "name", "kind", "path", "start_line", "ref_chunks", "content",
             "_from", "_to", "callee", "to_path", "w",
@@ -317,7 +317,7 @@ pub struct SymbolsLookup {
     pub k: usize,
 }
 
-/// Resolve nama simbol → id + lokasi (untuk seed graph dari plugin).
+/// Resolve nama simbol â†’ id + lokasi (untuk seed graph dari plugin).
 pub async fn symbols_lookup(
     Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
@@ -602,7 +602,7 @@ pub async fn memory_forget(
                 return Ok::<_, anyhow::Error>(serde_json::json!({ "forbidden": true }));
             }
         }
-        db.delete(col, &id)?; // soft delete (restoreable) — hakodb v0.20.0
+        db.delete(col, &id)?; // soft delete (restoreable) â€” hakodb v0.20.0
         Ok::<_, anyhow::Error>(serde_json::json!({ "forgotten": id }))
     })
     .await
@@ -623,7 +623,7 @@ pub struct BackfillOwner {
 }
 
 /// Stamp `user_id` pada dokumen memory lama yang belum punya owner.
-/// Hanya admin. Dokumen tanpa user_id disembunyikan dari user biasa直到 backfill.
+/// Hanya admin. Dokumen tanpa user_id disembunyikan dari user biasaç›´åˆ° backfill.
 pub async fn admin_backfill_owner(
     Extension(auth): Extension<AuthContext>,
     State(state): State<Arc<AppState>>,
@@ -661,7 +661,7 @@ pub async fn admin_backfill_owner(
 
 #[derive(Deserialize)]
 pub struct RevokeToken {
-    /// token lengkap (dari header klien) — jti/fingerprint dihitung server
+    /// token lengkap (dari header klien) â€” jti/fingerprint dihitung server
     pub token: Option<String>,
     /// atau langsung kunci revokasi (jti)
     pub jti: Option<String>,
@@ -716,4 +716,242 @@ fn int_field(doc: &HakoDoc, key: &str) -> i64 {
 #[allow(dead_code)]
 fn _assert_pub_invariants() {
     let _ = project_id("x");
+}
+
+// ---- generic documents (#6) ----
+
+use hakomemory_core::docs;
+
+fn validate_source_uri(
+    auth: &AuthContext,
+    uri: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let path = std::path::Path::new(uri);
+    if path.is_absolute() && path.exists() {
+        validate_ingest_path(auth, uri)?;
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct DocumentUpsert {
+    pub project_id: String,
+    #[serde(flatten)]
+    pub document: docs::DocumentInput,
+}
+
+pub async fn documents_upsert(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<DocumentUpsert>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    validate_source_uri(&auth, &input.document.source_uri)?;
+    let (pid, doc) = (input.project_id.clone(), input.document);
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        docs::upsert_document(project.db(), &project.embedder_handle(), doc)})
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
+}
+
+#[derive(Deserialize)]
+pub struct DocumentBatch {
+    pub project_id: String,
+    pub documents: Vec<docs::DocumentInput>,
+}
+
+pub async fn documents_batch(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<DocumentBatch>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    for document in &input.documents {
+        validate_source_uri(&auth, &document.source_uri)?;
+    }
+    let (pid, documents) = (input.project_id.clone(), input.documents);
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        let mut records = Vec::new();
+        for document in documents {
+            records.push(docs::upsert_document(
+                project.db(),
+                &project.embedder_handle(),
+                document,
+            )?);
+        }
+        Ok::<_, anyhow::Error>(records)
+    })
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
+}
+
+#[derive(Deserialize)]
+pub struct DocumentGetParams {
+    pub project_id: String,
+    pub source_uri: String,
+}
+
+pub async fn documents_get(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DocumentGetParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &params.project_id).map_err(auth_err)?;
+    validate_source_uri(&auth, &params.source_uri)?;
+    let (pid, uri) = (params.project_id.clone(), params.source_uri.clone());
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        docs::get_document(project.db(), &uri)})
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    match res {
+        Some(view) => Ok(Json(serde_json::to_value(view).map_err(|e| err500(anyhow!("serialize: {e}")))?)),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "document not found" })),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DocumentListParams {
+    pub project_id: String,
+    #[serde(default)]
+    pub collection: Option<String>,
+    #[serde(default = "default_doc_limit")]
+    pub limit: usize,
+}
+
+fn default_doc_limit() -> usize {
+    50
+}
+
+pub async fn documents_list(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DocumentListParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &params.project_id).map_err(auth_err)?;
+    let (pid, collection, limit) = (
+        params.project_id.clone(),
+        params.collection.clone(),
+        params.limit,
+    );
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        docs::list_documents(project.db(), collection.as_deref(), limit)})
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(serde_json::json!({ "documents": res })))
+}
+
+#[derive(Deserialize)]
+pub struct DocumentDelete {
+    pub project_id: String,
+    pub source_uri: String,
+}
+
+pub async fn documents_delete(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<DocumentDelete>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    validate_source_uri(&auth, &input.source_uri)?;
+    let (pid, uri) = (input.project_id.clone(), input.source_uri.clone());
+    let response_uri = uri.clone();
+    let engine = state.engine.clone();
+    let deleted = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        docs::delete_document(project.db(), &uri)})
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    if deleted {
+        Ok(Json(serde_json::json!({ "deleted": response_uri })))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "document not found" })),
+        ))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DocumentScan {
+    pub project_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub collection: Option<String>,
+    #[serde(default)]
+    pub strategy: docs::ChunkStrategy,
+    #[serde(default = "docs::default_max_lines")]
+    pub max_lines: usize,
+    #[serde(default)]
+    pub overlap: usize,
+}
+
+pub async fn documents_scan(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<DocumentScan>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    validate_ingest_path(&auth, &input.path)?;
+    let options = docs::DocumentInput {
+        source_uri: String::new(),
+        content: String::new(),
+        collection: input.collection,
+        title: None,
+        metadata: None,
+        strategy: input.strategy,
+        max_lines: input.max_lines,
+        overlap: input.overlap,
+        mtime: None,
+    };
+    let (pid, path) = (input.project_id.clone(), input.path.clone());
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        docs::scan_directory(project.db(), &project.embedder_handle(), std::path::Path::new(&path), &options)})
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
+}
+
+#[derive(Deserialize)]
+pub struct MigrateInput {
+    pub project_id: String,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+pub async fn admin_migrate(
+    Extension(auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<MigrateInput>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state.authorize_project(&auth, &input.project_id).map_err(auth_err)?;
+    let (pid, dry_run) = (input.project_id.clone(), input.dry_run);
+    let engine = state.engine.clone();
+    let res = tokio::task::spawn_blocking(move || {
+        let project = engine.project_by_id(&pid)?;
+        docs::migrate(project.db(), dry_run)})
+    .await
+    .map_err(|e| err500(anyhow!("join: {e}")))?
+    .map_err(err500)?;
+    Ok(Json(serde_json::to_value(res).map_err(|e| err500(anyhow!("serialize: {e}")))?))
 }
